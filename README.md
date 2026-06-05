@@ -39,3 +39,7 @@ downloads/
 ```
 
 `--omit-publisher` removes the publisher level. `--compat` names files the way DriveThruRPG's own client does.
+
+## See also
+
+Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard).
