@@ -19,7 +19,7 @@ const { values: args } = parseArgs({
 });
 
 if (args.help) {
-  console.log(`Usage: drivethruwindow [options]
+  console.log(`Usage: drivethru-hoard [options]
 
 Options:
   -k, --key <key>        DriveThruRPG API key (prompts if omitted)
@@ -35,7 +35,7 @@ Options:
 let apiKey = args.key ?? "";
 
 if (!apiKey) {
-  intro("drivethruwindow");
+  intro("drivethru-hoard");
 
   const key = await text({ message: "DriveThruRPG API key:" });
   if (isCancel(key)) {

@@ -1,4 +1,4 @@
-# drivethruwindow
+# drivethru-hoard
 
 Download your DriveThruRPG library.
 
@@ -10,7 +10,7 @@ Download your DriveThruRPG library.
 ## Usage
 
 ```
-pnpm drivethruwindow --key <YOUR_API_KEY>
+pnpm drivethru-hoard --key <YOUR_API_KEY>
 ```
 
 Omit `--key` to be prompted interactively.
