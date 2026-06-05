@@ -16,6 +16,7 @@ const { values: args } = parseArgs({
     bundles: { type: "boolean" },
     bundle: { type: "string", short: "b" },
     output: { type: "string", short: "o" },
+    filter: { type: "string", short: "f", multiple: true },
     "dry-run": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
@@ -35,6 +36,7 @@ Options:
       --bundles            List your purchased bundles and exit
   -b, --bundle <id>        Download all games in a bundle by ID
   -o, --output <dir>       Output directory (default: downloads)
+  -f, --filter <term>      Filter games by name (case-insensitive substring); repeat for multiple
       --dry-run            Show what would be downloaded without downloading
   -h, --help               Show this help`);
   process.exit(0);
@@ -65,7 +67,7 @@ if (isNaN(jobs) || jobs < 1) {
   console.error(`Invalid --jobs value: "${args.jobs}". Must be a positive integer.`);
   process.exit(1);
 }
-const lib = new Library(token, jobs, args.human ?? false, args.output ?? "downloads", args["dry-run"] ?? false);
+const lib = new Library(token, jobs, args.human ?? false, args.output ?? "downloads", args["dry-run"] ?? false, args.filter ?? []);
 
 if (args.collections) {
   const profile = await lib.getProfile();
