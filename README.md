@@ -43,3 +43,7 @@ downloads/
 ```
 
 Files already downloaded are skipped. If the API reports a different MD5, the old file is moved to `old/` and re-downloaded. Failed downloads are logged to `errors.txt`.
+
+## See also
+
+Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard).
