@@ -1,0 +1,8 @@
+node_modules/
+dist/
+downloads/
+coverage/
+*.md5
+errors.txt
+.DS_Store
+.env
