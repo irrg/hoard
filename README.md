@@ -46,4 +46,4 @@ Files already downloaded are skipped. If the API reports a different MD5, the ol
 
 ## See also
 
-Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard).
+Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard), [bundleofholding-hoard](https://github.com/irrg/bundleofholding-hoard).
