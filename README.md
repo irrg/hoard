@@ -47,4 +47,4 @@ await game.doDownload(game.downloads[0], apiKey);
 
 ## See also
 
-Part of the hoard family — [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard).
+Part of the hoard family — [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard), [bundleofholding-hoard](https://github.com/irrg/bundleofholding-hoard).
