@@ -23,7 +23,7 @@ const { values: args } = parseArgs({
 });
 
 if (args.help) {
-  console.log(`Usage: itchcraft-dl [options]
+  console.log(`Usage: itchio-hoard [options]
 
 Options:
   -k, --key <key>          API key (prompts for credentials if omitted)
