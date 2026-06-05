@@ -42,4 +42,4 @@ downloads/
 
 ## See also
 
-Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard).
+Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard), [bundleofholding-hoard](https://github.com/irrg/bundleofholding-hoard).
