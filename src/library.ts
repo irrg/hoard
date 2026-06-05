@@ -39,17 +39,19 @@ export class Library {
   jobs: number;
   humanFolders: boolean;
   outputDir: string;
+  dryRun: boolean;
 
-  constructor(token: string, jobs = 4, humanFolders = false, outputDir = "downloads") {
+  constructor(token: string, jobs = 4, humanFolders = false, outputDir = "downloads", dryRun = false) {
     this.token = token;
     this.games = [];
     this.jobs = Math.min(jobs, MAX_JOBS);
     this.humanFolders = humanFolders;
     this.outputDir = outputDir;
+    this.dryRun = dryRun;
   }
 
   async loadGamePage(page: number): Promise<number> {
-    console.log("Loading page", page);
+    console.log(`Loading page ${page}`);
     const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
       headers: { Authorization: this.token },
     });
@@ -65,7 +67,7 @@ export class Library {
     if (!Array.isArray(j.owned_keys) || j.owned_keys.length === 0) return 0;
 
     for (const s of j.owned_keys) {
-      this.games.push(new Game(s, this.humanFolders, this.outputDir));
+      this.games.push(new Game(s, this.humanFolders, this.outputDir, this.dryRun));
     }
 
     return j.owned_keys.length;
@@ -122,7 +124,7 @@ export class Library {
       }
       if (!Array.isArray(j.collection_games) || j.collection_games.length === 0) break;
       for (const item of j.collection_games) {
-        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir));
+        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir, this.dryRun));
       }
       page++;
     }
@@ -157,7 +159,7 @@ export class Library {
       }
       if (!Array.isArray(j.bundle_games) || j.bundle_games.length === 0) break;
       for (const item of j.bundle_games) {
-        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir));
+        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir, this.dryRun));
       }
       page++;
     }
@@ -184,6 +186,6 @@ export class Library {
     });
 
     await runConcurrently(tasks, this.jobs);
-    console.log(`Downloaded ${downloaded} Games, ${errors} Errors`);
+    console.log(`Downloaded ${downloaded} games, ${errors} errors`);
   }
 }

@@ -39,8 +39,9 @@ export class Game {
   dir: string;
   outputDir: string;
   downloads: Upload[];
+  dryRun: boolean;
 
-  constructor(data: OwnedKeyData, humanFolders = false, outputDir = "downloads") {
+  constructor(data: OwnedKeyData, humanFolders = false, outputDir = "downloads", dryRun = false) {
     this.data = data.game;
     this.name = this.data.title;
     this.link = this.data.url;
@@ -69,6 +70,7 @@ export class Game {
     this.outputDir = outputDir;
     this.dir = path.join(outputDir, cleanPath(this.publisherSlug), cleanPath(this.gameSlug));
     this.downloads = [];
+    this.dryRun = dryRun;
   }
 
   async loadDownloads(token: string): Promise<void> {
@@ -139,17 +141,21 @@ export class Game {
   async doDownload(d: Upload, token: string): Promise<boolean> {
     const rawFilename = d.filename ?? d.display_name ?? String(d.id);
     const filename = cleanPath(rawFilename);
-
-    console.log(`Downloading ${filename}`);
-
     const outFile = path.join(this.dir, filename);
     const md5Hash = d.md5_hash;
 
+    if (this.dryRun) {
+      console.log(`Dry run: ${this.name} - ${filename}`);
+      return false;
+    }
+
+    console.log(`Downloading ${filename}`);
+
     if (existsSync(outFile)) {
-      console.log(`File Already Exists! ${filename}`);
+      console.log(`File already exists: ${filename}`);
 
       if (!md5Hash) {
-        console.log(`Skipping ${this.name} - ${filename} (no hash to compare)`);
+        console.log(`Skipping ${this.name} - ${filename}`);
         return true;
       }
 
@@ -161,7 +167,7 @@ export class Game {
           console.log(`Skipping ${this.name} - ${filename}`);
           return true;
         }
-        console.log(`MD5 Mismatch! ${filename}`);
+        console.log(`Checksum mismatch: ${filename}`);
       } else {
         const computed = await md5sum(outFile);
         if (computed === md5Hash) {
@@ -208,24 +214,24 @@ export class Game {
       await download(downloadUrl, this.dir, this.name, filename);
     } catch (e) {
       if (e instanceof NoDownloadError) {
-        console.log("Http response is not a download, skipping");
+        console.log(`HTTP response is not a download, skipping`);
         await this._logError(
           outFile,
           filename,
           downloadUrl,
-          "This request failed due to a missing response header\n                    This game/asset has been skipped please download manually",
+          "Missing content-disposition header — skipped, please download manually",
         );
         return false;
       }
 
       if (e instanceof Error) {
-        console.log("This one has broken due to an HTTP error!!");
+        console.log(`Download failed: ${this.name} - ${filename}`);
         const code = (e as NodeJS.ErrnoException).code ?? "unknown";
         await this._logError(
           outFile,
           filename,
           downloadUrl,
-          `Request Response Code: ${code}\n                    Error Reason: ${e.message}\n                    This game/asset has been skipped please download manually`,
+          `Code: ${code}, reason: ${e.message} — skipped, please download manually`,
         );
         return false;
       }
