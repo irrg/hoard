@@ -34,7 +34,7 @@ Failed downloads are logged to `errors.txt` in the working directory.
 import { Library } from './src/index.js';
 
 const lib = new Library(apiKey, 4);
-await lib.loadOwnedGames();       // lib.games: Game[]
+await lib.loadOwnedGames(); // lib.games: Game[]
 
 // download everything
 await lib.downloadLibrary('osx'); // platform optional
