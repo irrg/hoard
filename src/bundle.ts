@@ -32,10 +32,12 @@ export interface BundleOptions {
   extInclude: string[];
   extExclude: string[];
   dryRun: boolean;
+  filters: string[];
 }
 
 export class Bundle {
   key: string;
+  name: string;
   title: string;
   subproducts: SubProduct[];
   private outputDir: string;
@@ -43,7 +45,8 @@ export class Bundle {
 
   constructor(key: string, data: BundleData, options: BundleOptions) {
     this.key = key;
-    this.title = cleanPath(data.product?.human_name ?? key);
+    this.name = data.product?.human_name ?? key;
+    this.title = cleanPath(this.name);
     this.subproducts = Array.isArray(data.subproducts) ? data.subproducts : [];
     this.outputDir = options.outputDir;
     this.options = options;
@@ -51,7 +54,11 @@ export class Bundle {
 
   async download(): Promise<void> {
     const bundleDir = path.join(this.outputDir, this.title);
-    for (const sub of this.subproducts) {
+    const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
+    const subproducts = filters.length
+      ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
+      : this.subproducts;
+    for (const sub of subproducts) {
       const subDir = path.join(bundleDir, cleanPath(sub.human_name));
       for (const dl of sub.downloads) {
         if (this.options.platform) {
@@ -83,7 +90,7 @@ export class Bundle {
     const outFile = path.join(dir, filename);
 
     if (this.options.dryRun) {
-      console.log(`Dry run: ${this.title} / ${productName} - ${filename}`);
+      console.log(`Dry run: ${this.name} / ${productName} - ${filename}`);
       return false;
     }
 
@@ -119,7 +126,7 @@ export class Bundle {
     await mkdir(dir, { recursive: true });
 
     try {
-      console.log(`Downloading ${this.title} / ${productName} - ${filename}`);
+      console.log(`Downloading ${this.name} / ${productName} - ${filename}`);
       await streamToFile(item.url.web, outFile, this.options.cookie);
       console.log(`Downloaded ${filename}`);
     } catch (e) {
@@ -127,7 +134,7 @@ export class Bundle {
       console.log(`Download failed: ${productName} - ${filename}: ${msg}`);
       await appendFile(
         path.join(this.outputDir, "errors.txt"),
-        `Cannot download: ${this.title} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
+        `Cannot download: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
       );
       return false;
     }
@@ -135,10 +142,9 @@ export class Bundle {
     const apiMd5 = item.md5 || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
+      await writeFile(withMd5Suffix(outFile), computed);
       if (computed !== apiMd5) {
         console.log(`MD5 mismatch after download: ${filename}`);
-      } else {
-        await writeFile(withMd5Suffix(outFile), apiMd5);
       }
     }
 

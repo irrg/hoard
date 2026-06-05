@@ -2,7 +2,6 @@ import { Bundle, BundleData, BundleOptions } from "./bundle.js";
 import { fetchWithRetry, runConcurrently } from "./utils.js";
 
 const BASE_URL = "https://www.humblebundle.com";
-const CHUNK_SIZE = 10;
 
 export interface LibraryOptions {
   cookie: string;
@@ -12,6 +11,7 @@ export interface LibraryOptions {
   extInclude: string[];
   extExclude: string[];
   dryRun: boolean;
+  filters: string[];
 }
 
 export class Library {
@@ -31,6 +31,7 @@ export class Library {
       extInclude: options.extInclude,
       extExclude: options.extExclude,
       dryRun: options.dryRun,
+      filters: options.filters,
     };
   }
 
@@ -51,35 +52,22 @@ export class Library {
   }
 
   private async fetchBundles(keys: string[]): Promise<void> {
-    const chunks: string[][] = [];
-    for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
-      chunks.push(keys.slice(i, i + CHUNK_SIZE));
-    }
-
-    for (const chunk of chunks) {
-      const params = new URLSearchParams({ all_tpkds: "true" });
-      for (const k of chunk) params.append("gamekeys", k);
-
-      const r = await fetchWithRetry(`${BASE_URL}/api/v1/orders?${params}`, {
+    for (const key of keys) {
+      const r = await fetchWithRetry(`${BASE_URL}/api/v1/order/${key}?all_tpkds=true`, {
         headers: this.authHeaders,
       });
-
       if (!r.ok) {
-        console.log(`Failed to fetch bundle chunk: HTTP ${r.status}`);
+        console.log(`Failed to fetch order ${key}: HTTP ${r.status}`);
         continue;
       }
-
-      let data: Record<string, BundleData>;
+      let data: BundleData;
       try {
-        data = (await r.json()) as Record<string, BundleData>;
+        data = (await r.json()) as BundleData;
       } catch {
-        console.log("Failed to parse bundle chunk response");
+        console.log(`Failed to parse order ${key}`);
         continue;
       }
-
-      for (const [key, bundleData] of Object.entries(data)) {
-        this.bundles.push(new Bundle(key, bundleData, this.bundleOptions));
-      }
+      this.bundles.push(new Bundle(key, data, this.bundleOptions));
     }
   }
 
@@ -107,10 +95,10 @@ export class Library {
       try {
         await b.download();
         done++;
-        console.log(`Done ${b.title} (${done} of ${total})`);
+        console.log(`Downloaded ${b.name} (${done} of ${total})`);
       } catch (e) {
         errors++;
-        console.log(`Error downloading ${b.title}: ${e instanceof Error ? e.message : e}`);
+        console.log(`Error downloading ${b.name}: ${e instanceof Error ? e.message : e}`);
       }
     });
 
