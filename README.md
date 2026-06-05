@@ -44,3 +44,7 @@ const game = lib.games[0];
 await game.loadDownloads(apiKey); // game.downloads: Upload[]
 await game.doDownload(game.downloads[0], apiKey);
 ```
+
+## See also
+
+Part of the hoard family — [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard).
