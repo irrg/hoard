@@ -1,6 +1,6 @@
-import { API_BASE, exchangeKey } from "./auth.js";
-import { Product, ProductData, ProductOptions } from "./product.js";
-import { fetchWithRetry, runConcurrently } from "./utils.js";
+import { API_BASE, exchangeKey } from './auth.js';
+import { Product, ProductData, ProductOptions } from './product.js';
+import { fetchWithRetry, runConcurrently } from './utils.js';
 
 export interface LibraryOptions {
   apiKey: string;
@@ -14,7 +14,7 @@ export interface LibraryOptions {
 
 export class Library {
   private apiKey: string;
-  private bearerToken = "";
+  private bearerToken = '';
   products: Product[];
   private jobs: number;
   private filters: string[];
@@ -34,17 +34,17 @@ export class Library {
   }
 
   async authenticate(): Promise<void> {
-    console.log("Authenticating...");
+    console.log('Authenticating...');
     this.bearerToken = await exchangeKey(this.apiKey);
   }
 
   async loadProducts(): Promise<void> {
-    console.log("Fetching product list...");
+    console.log('Fetching product list...');
     let page = 1;
     while (true) {
       const r = await fetchWithRetry(
         `${API_BASE}order_products?getChecksum=1&getFilters=0&page=${page}&pageSize=50&library=1&archived=0`,
-        { headers: { Authorization: this.bearerToken, Accept: "application/json" } },
+        { headers: { Authorization: this.bearerToken, Accept: 'application/json' } },
       );
 
       let j: ProductData[];

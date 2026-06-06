@@ -1,8 +1,9 @@
-import { writeFile, readFile, mkdir, rename, appendFile, stat } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-import { API_BASE } from "./auth.js";
-import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from "./utils.js";
+import { existsSync } from 'fs';
+import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
+import path from 'path';
+
+import { API_BASE } from './auth.js';
+import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from './utils.js';
 
 export interface ProductData {
   productId: string;
@@ -26,7 +27,7 @@ export interface ProductOptions {
   dryRun: boolean;
 }
 
-const SITE_ID = "10";
+const SITE_ID = '10';
 const POLL_INTERVAL_MS = 500;
 
 export class Product {
@@ -40,7 +41,7 @@ export class Product {
   constructor(data: ProductData, options: ProductOptions) {
     this.data = data;
     this.name = data.name;
-    this.publisherName = data.publisher?.name ?? "Others";
+    this.publisherName = data.publisher?.name ?? 'Others';
     this.outputDir = options.outputDir;
     this.options = options;
 
@@ -65,7 +66,7 @@ export class Product {
     if (wrote === 0) return;
 
     await writeFile(
-      this.dir + ".json",
+      this.dir + '.json',
       JSON.stringify(
         {
           name: this.name,
@@ -92,10 +93,10 @@ export class Product {
 
     if (existsSync(outFile)) {
       console.log(`File already exists: ${filename}`);
-      const md5File = withSuffix(outFile, ".md5");
+      const md5File = withSuffix(outFile, '.md5');
 
       if (apiChecksum && existsSync(md5File)) {
-        const stored = (await readFile(md5File, "utf8")).trim();
+        const stored = (await readFile(md5File, 'utf8')).trim();
         if (stored === apiChecksum) {
           console.log(`Skipping ${this.name} - ${filename}`);
           return false;
@@ -111,9 +112,9 @@ export class Product {
         console.log(`File outdated: ${filename}`);
       }
 
-      const oldDir = path.join(this.dir, "old");
+      const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
-      const timestamp = new Date().toISOString().split("T")[0];
+      const timestamp = new Date().toISOString().split('T')[0];
       console.log(`Moving ${filename} to old/`);
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
@@ -126,7 +127,7 @@ export class Product {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.log(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
-      await this._logError(outFile, filename, "", msg);
+      await this._logError(outFile, filename, '', msg);
       return false;
     }
 
@@ -143,7 +144,7 @@ export class Product {
 
     if (apiChecksum) {
       const computed = await md5sum(outFile);
-      const md5File = withSuffix(outFile, ".md5");
+      const md5File = withSuffix(outFile, '.md5');
       await writeFile(md5File, computed);
       if (computed !== apiChecksum) {
         console.log(`Failed to verify ${filename}`);
@@ -157,12 +158,12 @@ export class Product {
     const params = new URLSearchParams({
       siteId: SITE_ID,
       index: String(item.index),
-      getChecksums: "0",
+      getChecksums: '0',
     });
     const headers: Record<string, string> = {
       Authorization: bearerToken,
-      "Content-Type": "application/json",
-      Accept: "application/json",
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
     };
 
     let r = await fetchWithRetry(
@@ -173,7 +174,7 @@ export class Product {
 
     let data = (await r.json()) as { url: string; status: string };
 
-    while (data.status.startsWith("Preparing")) {
+    while (data.status.startsWith('Preparing')) {
       await sleep(POLL_INTERVAL_MS);
       r = await fetchWithRetry(
         `${API_BASE}order_products/${this.data.orderProductId}/check?${params}`,
@@ -183,7 +184,7 @@ export class Product {
       data = (await r.json()) as { url: string; status: string };
     }
 
-    if (!data.url) throw new Error("No URL in prepare response");
+    if (!data.url) throw new Error('No URL in prepare response');
     return data.url;
   }
 
@@ -193,9 +194,9 @@ export class Product {
     url: string,
     detail: string,
   ): Promise<void> {
-    const safeUrl = url.replace(/applicationKey=[^&]+/, "applicationKey=REDACTED");
+    const safeUrl = url.replace(/applicationKey=[^&]+/, 'applicationKey=REDACTED');
     await appendFile(
-      path.join(this.outputDir, "errors.txt"),
+      path.join(this.outputDir, 'errors.txt'),
       [
         ` Cannot download: ${this.name}`,
         ` Path: ${outFile}`,
@@ -203,7 +204,7 @@ export class Product {
         ` URL: ${safeUrl}`,
         ` ${detail}`,
         ` ---------------------------------------------------------\n`,
-      ].join("\n"),
+      ].join('\n'),
     );
   }
 }

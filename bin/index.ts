@@ -1,20 +1,22 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
-import { intro, text, outro, isCancel, cancel } from "@clack/prompts";
-import { Library } from "../src/index.js";
+import { parseArgs } from 'node:util';
+
+import { intro, text, outro, isCancel, cancel } from '@clack/prompts';
+
+import { Library } from '../src/index.js';
 
 const argv = process.argv.slice(2);
 const { values: args } = parseArgs({
-  args: argv[0] === "--" ? argv.slice(1) : argv,
+  args: argv[0] === '--' ? argv.slice(1) : argv,
   options: {
-    key: { type: "string", short: "k" },
-    jobs: { type: "string", short: "j" },
-    output: { type: "string", short: "o" },
-    filter: { type: "string", short: "f", multiple: true },
-    "dry-run": { type: "boolean" },
-    "omit-publisher": { type: "boolean" },
-    compat: { type: "boolean" },
-    help: { type: "boolean", short: "h" },
+    key: { type: 'string', short: 'k' },
+    jobs: { type: 'string', short: 'j' },
+    output: { type: 'string', short: 'o' },
+    filter: { type: 'string', short: 'f', multiple: true },
+    'dry-run': { type: 'boolean' },
+    'omit-publisher': { type: 'boolean' },
+    compat: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
   },
   strict: true,
 });
@@ -34,12 +36,12 @@ Options:
   process.exit(0);
 }
 
-let apiKey = args.key ?? "";
+let apiKey = args.key ?? '';
 
 if (!apiKey) {
-  intro("drivethru-hoard");
+  intro('drivethru-hoard');
 
-  const key = await text({ message: "DriveThruRPG API key:" });
+  const key = await text({ message: 'DriveThruRPG API key:' });
   if (isCancel(key)) {
     cancel();
     process.exit(1);
@@ -55,11 +57,11 @@ if (isNaN(jobs) || jobs < 1) {
 
 const lib = new Library({
   apiKey,
-  outputDir: args.output ?? "downloads",
+  outputDir: args.output ?? 'downloads',
   jobs,
   compat: args.compat ?? false,
-  omitPublisher: args["omit-publisher"] ?? false,
-  dryRun: args["dry-run"] ?? false,
+  omitPublisher: args['omit-publisher'] ?? false,
+  dryRun: args['dry-run'] ?? false,
   filters: args.filter ?? [],
 });
 
@@ -67,4 +69,4 @@ await lib.authenticate();
 await lib.loadProducts();
 await lib.downloadLibrary();
 
-outro("Done.");
+outro('Done.');
