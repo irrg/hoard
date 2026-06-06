@@ -1,7 +1,7 @@
-import { Bundle, BundleData, BundleOptions } from "./bundle.js";
-import { fetchWithRetry, runConcurrently } from "./utils.js";
+import { Bundle, BundleData, BundleOptions } from './bundle.js';
+import { fetchWithRetry, runConcurrently } from './utils.js';
 
-const BASE_URL = "https://www.humblebundle.com";
+const BASE_URL = 'https://www.humblebundle.com';
 
 export interface LibraryOptions {
   cookie: string;
@@ -38,7 +38,7 @@ export class Library {
   private get authHeaders(): Record<string, string> {
     return {
       Cookie: `_simpleauth_sess=${this.cookie}`,
-      Accept: "application/json",
+      Accept: 'application/json',
     };
   }
 

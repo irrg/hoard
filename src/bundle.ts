@@ -1,7 +1,8 @@
-import { writeFile, readFile, mkdir, rename, appendFile } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-import { streamToFile, md5sum, cleanPath } from "./utils.js";
+import { existsSync } from 'fs';
+import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
+import path from 'path';
+
+import { streamToFile, md5sum, cleanPath } from './utils.js';
 
 export interface DownloadStructItem {
   url: { web: string; bittorrent?: string };
@@ -99,7 +100,7 @@ export class Bundle {
       if (apiMd5) {
         const md5File = withMd5Suffix(outFile);
         if (existsSync(md5File)) {
-          const stored = (await readFile(md5File, "utf8")).trim();
+          const stored = (await readFile(md5File, 'utf8')).trim();
           if (stored === apiMd5) {
             console.log(`Skipping ${productName} - ${filename}`);
             return false;
@@ -113,9 +114,9 @@ export class Bundle {
           }
         }
         console.log(`Checksum mismatch: ${filename}, re-downloading`);
-        const oldDir = path.join(dir, "old");
+        const oldDir = path.join(dir, 'old');
         await mkdir(oldDir, { recursive: true });
-        const stamp = new Date().toISOString().split("T")[0];
+        const stamp = new Date().toISOString().split('T')[0];
         await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
       } else {
         console.log(`Skipping ${productName} - ${filename}`);
@@ -133,7 +134,7 @@ export class Bundle {
       const msg = e instanceof Error ? e.message : String(e);
       console.log(`Download failed: ${productName} - ${filename}: ${msg}`);
       await appendFile(
-        path.join(this.outputDir, "errors.txt"),
+        path.join(this.outputDir, 'errors.txt'),
         `Cannot download: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
       );
       return false;
@@ -152,7 +153,7 @@ export class Bundle {
   }
 
   private shouldDownloadExt(filename: string): boolean {
-    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
     if (this.options.extInclude.length > 0) return this.options.extInclude.includes(ext);
     if (this.options.extExclude.length > 0) return !this.options.extExclude.includes(ext);
     return true;
@@ -161,13 +162,13 @@ export class Bundle {
 
 function filenameFromUrl(url: string): string {
   try {
-    return new URL(url).pathname.split("/").pop() ?? "";
+    return new URL(url).pathname.split('/').pop() ?? '';
   } catch {
-    return url.split("?")[0].split("/").pop() ?? "";
+    return url.split('?')[0].split('/').pop() ?? '';
   }
 }
 
 function withMd5Suffix(filePath: string): string {
   const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + ".md5" : filePath + ".md5";
+  return ext ? filePath.slice(0, -ext.length) + '.md5' : filePath + '.md5';
 }
