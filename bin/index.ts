@@ -10,6 +10,7 @@ const { values: args } = parseArgs({
     key: { type: "string", short: "k" },
     jobs: { type: "string", short: "j" },
     output: { type: "string", short: "o" },
+    filter: { type: "string", short: "f", multiple: true },
     "dry-run": { type: "boolean" },
     "omit-publisher": { type: "boolean" },
     compat: { type: "boolean" },
@@ -25,6 +26,7 @@ Options:
   -k, --key <key>        DriveThruRPG API key (prompts if omitted)
   -j, --jobs <n>         Concurrent downloads (default: 4)
   -o, --output <dir>     Output directory (default: downloads)
+  -f, --filter <term>    Filter products by name (case-insensitive substring); repeat for multiple
       --dry-run          Show what would be downloaded without downloading
       --omit-publisher   Skip publisher directory level
       --compat           Use DriveThruRPG client naming convention
@@ -58,6 +60,7 @@ const lib = new Library({
   compat: args.compat ?? false,
   omitPublisher: args["omit-publisher"] ?? false,
   dryRun: args["dry-run"] ?? false,
+  filters: args.filter ?? [],
 });
 
 await lib.authenticate();

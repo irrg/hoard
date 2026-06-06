@@ -144,10 +144,9 @@ export class Product {
     if (apiChecksum) {
       const computed = await md5sum(outFile);
       const md5File = withSuffix(outFile, ".md5");
+      await writeFile(md5File, computed);
       if (computed !== apiChecksum) {
         console.log(`Failed to verify ${filename}`);
-      } else {
-        await writeFile(md5File, apiChecksum);
       }
     }
 
