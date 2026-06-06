@@ -9,6 +9,7 @@ export interface LibraryOptions {
   compat: boolean;
   omitPublisher: boolean;
   dryRun: boolean;
+  filters: string[];
 }
 
 export class Library {
@@ -16,12 +17,14 @@ export class Library {
   private bearerToken = "";
   products: Product[];
   private jobs: number;
+  private filters: string[];
   private productOptions: ProductOptions;
 
   constructor(options: LibraryOptions) {
     this.apiKey = options.apiKey;
     this.products = [];
     this.jobs = options.jobs;
+    this.filters = options.filters.map((f) => f.toLowerCase());
     this.productOptions = {
       outputDir: options.outputDir,
       compat: options.compat,
@@ -65,11 +68,14 @@ export class Library {
   }
 
   async downloadLibrary(): Promise<void> {
-    const total = this.products.length;
     let done = 0;
     let errors = 0;
 
-    const tasks = this.products.map((p) => async () => {
+    const products = this.filters.length
+      ? this.products.filter((p) => this.filters.some((f) => p.name.toLowerCase().includes(f)))
+      : this.products;
+    const total = products.length;
+    const tasks = products.map((p) => async () => {
       try {
         await p.download(this.bearerToken);
         done++;
