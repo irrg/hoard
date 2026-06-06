@@ -40,14 +40,16 @@ export class Library {
   humanFolders: boolean;
   outputDir: string;
   dryRun: boolean;
+  filters: string[];
 
-  constructor(token: string, jobs = 4, humanFolders = false, outputDir = "downloads", dryRun = false) {
+  constructor(token: string, jobs = 4, humanFolders = false, outputDir = "downloads", dryRun = false, filters: string[] = []) {
     this.token = token;
     this.games = [];
     this.jobs = Math.min(jobs, MAX_JOBS);
     this.humanFolders = humanFolders;
     this.outputDir = outputDir;
     this.dryRun = dryRun;
+    this.filters = filters.map((f) => f.toLowerCase());
   }
 
   async loadGamePage(page: number): Promise<number> {
@@ -166,11 +168,14 @@ export class Library {
   }
 
   async downloadLibrary(platform?: string): Promise<void> {
-    const total = this.games.length;
+    const games = this.filters.length
+      ? this.games.filter((g) => this.filters.some((f) => g.name.toLowerCase().includes(f)))
+      : this.games;
+    const total = games.length;
     let downloaded = 0;
     let errors = 0;
 
-    const tasks = this.games.map((g) => async () => {
+    const tasks = games.map((g) => async () => {
       try {
         await g.download(this.token, platform);
         downloaded++;

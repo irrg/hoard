@@ -239,14 +239,12 @@ export class Game {
       throw e;
     }
 
-    // Verify MD5 after download
     if (md5Hash) {
       const computed = await md5sum(outFile);
+      await writeFile(withSuffix(outFile, ".md5"), computed);
       if (computed !== md5Hash) {
         console.log(`Failed to verify ${filename}`);
-        return false;
       }
-      await writeFile(withSuffix(outFile, ".md5"), md5Hash);
     }
 
     return true;

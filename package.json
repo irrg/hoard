@@ -1,5 +1,5 @@
 {
-  "name": "itchcraft",
+  "name": "@irrg/itchio-hoard",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "lint": "oxlint src tests bin",
     "fmt": "oxfmt src tests bin",
     "fmt:check": "oxfmt --check src tests bin",
-    "itchcraft-dl": "node --import tsx/esm bin/index.ts"
+    "itchio-hoard": "node --import tsx/esm bin/index.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.0"
