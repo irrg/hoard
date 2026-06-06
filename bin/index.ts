@@ -1,22 +1,24 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
-import { intro, text, password as passwordPrompt, outro, isCancel, cancel } from "@clack/prompts";
-import { loginWeb, fetchCabinet, Library } from "../src/index.js";
+import { parseArgs } from 'node:util';
+
+import { intro, text, password as passwordPrompt, outro, isCancel, cancel } from '@clack/prompts';
+
+import { loginWeb, fetchCabinet, Library } from '../src/index.js';
 
 const argv = process.argv.slice(2);
 const { values: args } = parseArgs({
-  args: argv[0] === "--" ? argv.slice(1) : argv,
+  args: argv[0] === '--' ? argv.slice(1) : argv,
   options: {
-    key: { type: "string", short: "k", multiple: true },
-    email: { type: "string", short: "e" },
-    password: { type: "string", short: "p" },
-    cookie: { type: "string", short: "c" },
-    jobs: { type: "string", short: "j" },
-    output: { type: "string", short: "o" },
-    filter: { type: "string", short: "f", multiple: true },
-    "dry-run": { type: "boolean" },
-    list: { type: "boolean" },
-    help: { type: "boolean", short: "h" },
+    key: { type: 'string', short: 'k', multiple: true },
+    email: { type: 'string', short: 'e' },
+    password: { type: 'string', short: 'p' },
+    cookie: { type: 'string', short: 'c' },
+    jobs: { type: 'string', short: 'j' },
+    output: { type: 'string', short: 'o' },
+    filter: { type: 'string', short: 'f', multiple: true },
+    'dry-run': { type: 'boolean' },
+    list: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
   },
   strict: true,
 });
@@ -45,7 +47,7 @@ if (isNaN(jobs) || jobs < 1) {
   process.exit(1);
 }
 
-const keys = (args.key ?? []).flatMap((k) => k.split(",").map((s) => s.trim())).filter(Boolean);
+const keys = (args.key ?? []).flatMap((k) => k.split(',').map((s) => s.trim())).filter(Boolean);
 
 let cookie: string;
 let bundles: { name: string; key: string }[];
@@ -53,20 +55,26 @@ let bundles: { name: string; key: string }[];
 if (args.cookie) {
   cookie = args.cookie;
 } else {
-  intro("bundleofholding-hoard");
+  intro('bundleofholding-hoard');
 
-  let email = args.email ?? "";
-  let pass = args.password ?? "";
+  let email = args.email ?? '';
+  let pass = args.password ?? '';
 
   if (!email) {
-    const val = await text({ message: "Bundle of Holding email:" });
-    if (isCancel(val)) { cancel(); process.exit(1); }
+    const val = await text({ message: 'Bundle of Holding email:' });
+    if (isCancel(val)) {
+      cancel();
+      process.exit(1);
+    }
     email = val as string;
   }
 
   if (!pass) {
-    const val = await passwordPrompt({ message: "Password:" });
-    if (isCancel(val)) { cancel(); process.exit(1); }
+    const val = await passwordPrompt({ message: 'Password:' });
+    if (isCancel(val)) {
+      cancel();
+      process.exit(1);
+    }
     pass = val as string;
   }
 
@@ -81,9 +89,9 @@ if (keys.length > 0) {
 }
 
 const lib = new Library({
-  outputDir: args.output ?? "downloads",
+  outputDir: args.output ?? 'downloads',
   jobs,
-  dryRun: args["dry-run"] ?? false,
+  dryRun: args['dry-run'] ?? false,
   cookie,
   filters: args.filter ?? [],
 });
@@ -94,4 +102,4 @@ if (args.list) {
   await lib.downloadBundles(bundles);
 }
 
-outro("Done.");
+outro('Done.');

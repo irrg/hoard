@@ -1,12 +1,12 @@
-import { createHash } from "crypto";
-import { createReadStream, createWriteStream } from "fs";
-import { pipeline } from "stream/promises";
-import { Readable } from "stream";
+import { createHash } from 'crypto';
+import { createReadStream, createWriteStream } from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 
 export class NoDownloadError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "NoDownloadError";
+    this.name = 'NoDownloadError';
   }
 }
 
@@ -19,7 +19,7 @@ export async function fetchWithRetry(
   for (let attempt = 0; ; attempt++) {
     const r = await fetch(url, options);
     if (r.status !== 429 || attempt >= retries) return r;
-    const retryAfter = r.headers.get("retry-after");
+    const retryAfter = r.headers.get('retry-after');
     const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
     console.log(`Rate limited, retrying in ${wait / 1000}s...`);
     await new Promise((res) => setTimeout(res, wait));
@@ -27,21 +27,17 @@ export async function fetchWithRetry(
   }
 }
 
-export async function streamToFile(
-  url: string,
-  outPath: string,
-  cookie?: string,
-): Promise<void> {
+export async function streamToFile(url: string, outPath: string, cookie?: string): Promise<void> {
   const headers: Record<string, string> = {
-    "Accept-Encoding": "gzip, deflate, br",
-    "User-Agent": "Mozilla/5.0",
-    Accept: "*/*",
+    'Accept-Encoding': 'gzip, deflate, br',
+    'User-Agent': 'Mozilla/5.0',
+    Accept: '*/*',
   };
-  if (cookie) headers["Cookie"] = cookie;
+  if (cookie) headers['Cookie'] = cookie;
 
   const response = await fetch(url, { headers });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  if (!response.body) throw new Error("No response body");
+  if (!response.body) throw new Error('No response body');
   await pipeline(
     Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
     createWriteStream(outPath),
@@ -50,16 +46,16 @@ export async function streamToFile(
 
 export async function md5sum(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const hash = createHash("md5");
+    const hash = createHash('md5');
     const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
-    stream.on("error", reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
   });
 }
 
 export function cleanPath(p: string): string {
-  return p.replace(/[<>:|?*"/\\]/g, "-").replace(/\.{2,}/g, "-");
+  return p.replace(/[<>:|?*"/\\]/g, '-').replace(/\.{2,}/g, '-');
 }
 
 export async function runConcurrently(
