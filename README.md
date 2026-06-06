@@ -62,3 +62,7 @@ Files already downloaded are skipped. If the stored MD5 doesn't match the remote
 ## See also
 
 Part of the hoard family — [itchio-hoard](https://github.com/irrg/itchio-hoard), [humblebundle-hoard](https://github.com/irrg/humblebundle-hoard), [drivethru-hoard](https://github.com/irrg/drivethru-hoard).
+
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE).
