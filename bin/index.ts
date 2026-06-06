@@ -15,6 +15,7 @@ const { values: args } = parseArgs({
     "ext-exclude": { type: "string" },
     bundles: { type: "boolean" },
     bundle: { type: "string", short: "b" },
+    filter: { type: "string", short: "f", multiple: true },
     "dry-run": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
@@ -22,7 +23,7 @@ const { values: args } = parseArgs({
 });
 
 if (args.help) {
-  console.log(`Usage: humblebrag [options]
+  console.log(`Usage: humblebundle-hoard [options]
 
 Options:
   -k, --key <cookie>       Humble Bundle session cookie (prompts if omitted)
@@ -33,6 +34,7 @@ Options:
       --ext-exclude <exts> Skip these extensions, comma-separated
       --bundles            List your Humble Bundle orders and exit
   -b, --bundle <key>       Download a specific order by key
+  -f, --filter <term>      Filter items by name (case-insensitive substring); repeat for multiple
       --dry-run            Show what would be downloaded without downloading
   -h, --help               Show this help`);
   process.exit(0);
@@ -46,7 +48,7 @@ if (args["ext-include"] && args["ext-exclude"]) {
 let cookie = args.key ?? "";
 
 if (!cookie) {
-  intro("humblebrag");
+  intro("humblebundle-hoard");
 
   const val = await password({ message: "Humble Bundle session cookie (_simpleauth_sess):" });
   if (isCancel(val)) {
@@ -78,6 +80,7 @@ const lib = new Library({
   extInclude: parseExtList(args["ext-include"]),
   extExclude: parseExtList(args["ext-exclude"]),
   dryRun: args["dry-run"] ?? false,
+  filters: args.filter ?? [],
 });
 
 if (args.bundles) {
