@@ -187,7 +187,12 @@ export class Product {
     return data.url;
   }
 
-  private async _logError(outFile: string, filename: string, url: string, detail: string): Promise<void> {
+  private async _logError(
+    outFile: string,
+    filename: string,
+    url: string,
+    detail: string,
+  ): Promise<void> {
     const safeUrl = url.replace(/applicationKey=[^&]+/, "applicationKey=REDACTED");
     await appendFile(
       path.join(this.outputDir, "errors.txt"),
