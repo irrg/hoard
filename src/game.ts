@@ -1,7 +1,8 @@
-import { writeFile, readFile, mkdir, rename, appendFile } from "fs/promises";
-import { existsSync } from "fs";
-import path from "path";
-import { cleanPath, download, fetchWithRetry, md5sum, NoDownloadError } from "./utils.js";
+import { existsSync } from 'fs';
+import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
+import path from 'path';
+
+import { cleanPath, download, fetchWithRetry, md5sum, NoDownloadError } from './utils.js';
 
 export interface GameData {
   title: string;
@@ -41,7 +42,7 @@ export class Game {
   downloads: Upload[];
   dryRun: boolean;
 
-  constructor(data: OwnedKeyData, humanFolders = false, outputDir = "downloads", dryRun = false) {
+  constructor(data: OwnedKeyData, humanFolders = false, outputDir = 'downloads', dryRun = false) {
     this.data = data.game;
     this.name = this.data.title;
     this.link = this.data.url;
@@ -51,7 +52,7 @@ export class Game {
 
     this.publisher = this.data.user?.username ?? matches[1];
 
-    if ("game_id" in data && data.game_id != null) {
+    if ('game_id' in data && data.game_id != null) {
       this.id = data.id as number;
       this.gameId = data.game_id;
     } else {
@@ -61,7 +62,9 @@ export class Game {
 
     if (humanFolders) {
       this.gameSlug = cleanPath(this.data.title);
-      this.publisherSlug = cleanPath(this.data.user?.display_name ?? this.data.user?.username ?? matches[1]);
+      this.publisherSlug = cleanPath(
+        this.data.user?.display_name ?? this.data.user?.username ?? matches[1],
+      );
     } else {
       this.publisherSlug = matches[1];
       this.gameSlug = matches[2];
@@ -94,15 +97,17 @@ export class Game {
   }
 
   async download(token: string, platform?: string): Promise<void> {
-    console.log("Downloading", this.name);
+    console.log('Downloading', this.name);
 
     await this.loadDownloads(token);
 
     const eligible = this.downloads.filter((d) => {
       if (platform != null && Array.isArray(d.traits)) {
-        const platformTraits = d.traits.filter((t) => t.startsWith("p_"));
+        const platformTraits = d.traits.filter((t) => t.startsWith('p_'));
         if (platformTraits.length > 0 && !platformTraits.includes(`p_${platform}`)) {
-          console.log(`Skipping ${this.name} - ${d.filename ?? d.id} (${platformTraits.join(", ")})`);
+          console.log(
+            `Skipping ${this.name} - ${d.filename ?? d.id} (${platformTraits.join(', ')})`,
+          );
           return false;
         }
       }
@@ -120,7 +125,7 @@ export class Game {
 
     if (wrote === 0) return;
 
-    const manifestPath = this.dir + ".json";
+    const manifestPath = this.dir + '.json';
     await writeFile(
       manifestPath,
       JSON.stringify(
@@ -159,10 +164,10 @@ export class Game {
         return true;
       }
 
-      const md5File = withSuffix(outFile, ".md5");
+      const md5File = withSuffix(outFile, '.md5');
 
       if (existsSync(md5File)) {
-        const storedMd5 = (await readFile(md5File, "utf8")).trim();
+        const storedMd5 = (await readFile(md5File, 'utf8')).trim();
         if (storedMd5 === md5Hash) {
           console.log(`Skipping ${this.name} - ${filename}`);
           return true;
@@ -177,19 +182,22 @@ export class Game {
         }
       }
 
-      const oldDir = path.join(this.dir, "old");
+      const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
 
       console.log(`Moving ${filename} to old/`);
-      const timestamp = new Date().toISOString().split("T")[0];
+      const timestamp = new Date().toISOString().split('T')[0];
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
 
     // Get download session UUID
-    const sessionResp = await fetchWithRetry(`https://api.itch.io/games/${this.gameId}/download-sessions`, {
-      method: "POST",
-      headers: { Authorization: token },
-    });
+    const sessionResp = await fetchWithRetry(
+      `https://api.itch.io/games/${this.gameId}/download-sessions`,
+      {
+        method: 'POST',
+        headers: { Authorization: token },
+      },
+    );
 
     let sessionJson: { uuid?: string };
     try {
@@ -202,7 +210,9 @@ export class Game {
     }
 
     if (!sessionJson.uuid) {
-      console.log(`No session UUID for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`);
+      console.log(
+        `No session UUID for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`,
+      );
       return false;
     }
 
@@ -219,14 +229,14 @@ export class Game {
           outFile,
           filename,
           downloadUrl,
-          "Missing content-disposition header — skipped, please download manually",
+          'Missing content-disposition header — skipped, please download manually',
         );
         return false;
       }
 
       if (e instanceof Error) {
         console.log(`Download failed: ${this.name} - ${filename}`);
-        const code = (e as NodeJS.ErrnoException).code ?? "unknown";
+        const code = (e as NodeJS.ErrnoException).code ?? 'unknown';
         await this._logError(
           outFile,
           filename,
@@ -241,7 +251,7 @@ export class Game {
 
     if (md5Hash) {
       const computed = await md5sum(outFile);
-      await writeFile(withSuffix(outFile, ".md5"), computed);
+      await writeFile(withSuffix(outFile, '.md5'), computed);
       if (computed !== md5Hash) {
         console.log(`Failed to verify ${filename}`);
       }
@@ -256,9 +266,9 @@ export class Game {
     requestUrl: string,
     detail: string,
   ): Promise<void> {
-    const safeUrl = requestUrl.replace(/api_key=[^&]+/, "api_key=REDACTED");
+    const safeUrl = requestUrl.replace(/api_key=[^&]+/, 'api_key=REDACTED');
     await appendFile(
-      path.join(this.outputDir, "errors.txt"),
+      path.join(this.outputDir, 'errors.txt'),
       [
         ` Cannot download game/asset: ${this.gameSlug}`,
         ` Publisher Name: ${this.publisherSlug}`,
@@ -267,7 +277,7 @@ export class Game {
         ` Request URL: ${safeUrl}`,
         ` ${detail}`,
         ` ---------------------------------------------------------\n`,
-      ].join("\n"),
+      ].join('\n'),
     );
   }
 }

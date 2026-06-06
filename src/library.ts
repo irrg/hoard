@@ -1,5 +1,5 @@
-import { Game, GameData, OwnedKeyData } from "./game.js";
-import { NoDownloadError, fetchWithRetry, runConcurrently } from "./utils.js";
+import { Game, GameData, OwnedKeyData } from './game.js';
+import { NoDownloadError, fetchWithRetry, runConcurrently } from './utils.js';
 
 export interface UserProfile {
   id: number;
@@ -42,7 +42,14 @@ export class Library {
   dryRun: boolean;
   filters: string[];
 
-  constructor(token: string, jobs = 4, humanFolders = false, outputDir = "downloads", dryRun = false, filters: string[] = []) {
+  constructor(
+    token: string,
+    jobs = 4,
+    humanFolders = false,
+    outputDir = 'downloads',
+    dryRun = false,
+    filters: string[] = [],
+  ) {
     this.token = token;
     this.games = [];
     this.jobs = Math.min(jobs, MAX_JOBS);
@@ -85,7 +92,7 @@ export class Library {
   }
 
   async getProfile(): Promise<UserProfile | null> {
-    const r = await fetchWithRetry("https://api.itch.io/profile", {
+    const r = await fetchWithRetry('https://api.itch.io/profile', {
       headers: { Authorization: this.token },
     });
     try {
@@ -98,7 +105,7 @@ export class Library {
   }
 
   async loadCollections(): Promise<Collection[]> {
-    const r = await fetchWithRetry("https://api.itch.io/profile/collections", {
+    const r = await fetchWithRetry('https://api.itch.io/profile/collections', {
       headers: { Authorization: this.token },
     });
     try {
@@ -126,14 +133,21 @@ export class Library {
       }
       if (!Array.isArray(j.collection_games) || j.collection_games.length === 0) break;
       for (const item of j.collection_games) {
-        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir, this.dryRun));
+        this.games.push(
+          new Game(
+            { game: item.game } as OwnedKeyData,
+            this.humanFolders,
+            this.outputDir,
+            this.dryRun,
+          ),
+        );
       }
       page++;
     }
   }
 
   async loadBundles(): Promise<BundleKey[]> {
-    const r = await fetchWithRetry("https://api.itch.io/profile/owned-bundles", {
+    const r = await fetchWithRetry('https://api.itch.io/profile/owned-bundles', {
       headers: { Authorization: this.token },
     });
     try {
@@ -161,7 +175,14 @@ export class Library {
       }
       if (!Array.isArray(j.bundle_games) || j.bundle_games.length === 0) break;
       for (const item of j.bundle_games) {
-        this.games.push(new Game({ game: item.game } as OwnedKeyData, this.humanFolders, this.outputDir, this.dryRun));
+        this.games.push(
+          new Game(
+            { game: item.game } as OwnedKeyData,
+            this.humanFolders,
+            this.outputDir,
+            this.dryRun,
+          ),
+        );
       }
       page++;
     }

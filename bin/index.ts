@@ -1,24 +1,26 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
-import { intro, text, password, outro, isCancel, cancel } from "@clack/prompts";
-import { loginAPI, Library } from "../src/index.js";
+import { parseArgs } from 'node:util';
+
+import { intro, text, password, outro, isCancel, cancel } from '@clack/prompts';
+
+import { loginAPI, Library } from '../src/index.js';
 
 const argv = process.argv.slice(2);
 const { values: args } = parseArgs({
-  args: argv[0] === "--" ? argv.slice(1) : argv,
+  args: argv[0] === '--' ? argv.slice(1) : argv,
   options: {
-    key: { type: "string", short: "k" },
-    platform: { type: "string", short: "p" },
-    human: { type: "boolean" },
-    jobs: { type: "string", short: "j" },
-    collections: { type: "boolean" },
-    collection: { type: "string", short: "c" },
-    bundles: { type: "boolean" },
-    bundle: { type: "string", short: "b" },
-    output: { type: "string", short: "o" },
-    filter: { type: "string", short: "f", multiple: true },
-    "dry-run": { type: "boolean" },
-    help: { type: "boolean", short: "h" },
+    key: { type: 'string', short: 'k' },
+    platform: { type: 'string', short: 'p' },
+    human: { type: 'boolean' },
+    jobs: { type: 'string', short: 'j' },
+    collections: { type: 'boolean' },
+    collection: { type: 'string', short: 'c' },
+    bundles: { type: 'boolean' },
+    bundle: { type: 'string', short: 'b' },
+    output: { type: 'string', short: 'o' },
+    filter: { type: 'string', short: 'f', multiple: true },
+    'dry-run': { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
   },
   strict: true,
 });
@@ -42,18 +44,18 @@ Options:
   process.exit(0);
 }
 
-let token = args.key ?? "";
+let token = args.key ?? '';
 
 if (!token) {
-  intro("itchcraft");
+  intro('itchcraft');
 
-  const user = await text({ message: "Username:" });
+  const user = await text({ message: 'Username:' });
   if (isCancel(user)) {
     cancel();
     process.exit(1);
   }
 
-  const pass = await password({ message: "Password:" });
+  const pass = await password({ message: 'Password:' });
   if (isCancel(pass)) {
     cancel();
     process.exit(1);
@@ -67,7 +69,14 @@ if (isNaN(jobs) || jobs < 1) {
   console.error(`Invalid --jobs value: "${args.jobs}". Must be a positive integer.`);
   process.exit(1);
 }
-const lib = new Library(token, jobs, args.human ?? false, args.output ?? "downloads", args["dry-run"] ?? false, args.filter ?? []);
+const lib = new Library(
+  token,
+  jobs,
+  args.human ?? false,
+  args.output ?? 'downloads',
+  args['dry-run'] ?? false,
+  args.filter ?? [],
+);
 
 if (args.collections) {
   const profile = await lib.getProfile();
@@ -76,10 +85,10 @@ if (args.collections) {
   }
   const collections = await lib.loadCollections();
   if (collections.length === 0) {
-    console.log("No collections found.");
+    console.log('No collections found.');
   } else {
     for (const c of collections) {
-      console.log(`  [${c.id}] ${c.title} (${c.games_count ?? "?"} games)`);
+      console.log(`  [${c.id}] ${c.title} (${c.games_count ?? '?'} games)`);
     }
   }
   process.exit(0);
@@ -93,7 +102,7 @@ if (args.collection != null) {
   }
   await lib.loadCollection(collectionId);
   await lib.downloadLibrary(args.platform);
-  outro("Done.");
+  outro('Done.');
   process.exit(0);
 }
 
@@ -104,10 +113,10 @@ if (args.bundles) {
   }
   const bundles = await lib.loadBundles();
   if (bundles.length === 0) {
-    console.log("No bundles found.");
+    console.log('No bundles found.');
   } else {
     for (const bk of bundles) {
-      console.log(`  [${bk.bundle.id}] ${bk.bundle.title} (${bk.bundle.games_count ?? "?"} games)`);
+      console.log(`  [${bk.bundle.id}] ${bk.bundle.title} (${bk.bundle.games_count ?? '?'} games)`);
     }
   }
   process.exit(0);
@@ -121,11 +130,11 @@ if (args.bundle != null) {
   }
   await lib.loadBundle(bundleId);
   await lib.downloadLibrary(args.platform);
-  outro("Done.");
+  outro('Done.');
   process.exit(0);
 }
 
 await lib.loadOwnedGames();
 await lib.downloadLibrary(args.platform);
 
-outro("Done.");
+outro('Done.');
