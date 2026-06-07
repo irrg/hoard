@@ -33,8 +33,8 @@ const gameData = {
   },
 };
 
-function makeGame() {
-  return new Game(gameData);
+function makeGame(logger?: (msg: string) => void) {
+  return new Game(gameData, false, 'downloads', false, logger ?? (() => {}));
 }
 
 function makeUpload(overrides: Partial<Upload> = {}): Upload {
@@ -120,6 +120,7 @@ describe('Game.doDownload', () => {
       expect.any(String),
       'Test Game',
       'game.zip',
+      expect.any(Function),
     );
   });
 
@@ -131,6 +132,7 @@ describe('Game.doDownload', () => {
       expect.any(String),
       expect.any(String),
       expect.any(String),
+      expect.any(Function),
     );
   });
 
@@ -144,11 +146,10 @@ describe('Game.doDownload', () => {
   it('logs failure but does not throw when MD5 verification fails post-download', async () => {
     mockSession(fetchMock);
     vi.mocked(md5sum).mockResolvedValue('wrong-hash');
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await makeGame().doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok');
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
+    const logSpy = vi.fn();
+    await makeGame(logSpy).doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok');
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
     expect(writeFile).not.toHaveBeenCalledWith(expect.stringContaining('.md5'), expect.anything());
-    consoleSpy.mockRestore();
   });
 
   it('skips when file exists and has no md5_hash', async () => {

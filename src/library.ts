@@ -41,6 +41,8 @@ export class Library {
   outputDir: string;
   dryRun: boolean;
   filters: string[];
+  private logger: (msg: string) => void;
+  private onProgress?: (done: number, total: number, downloaded: number) => void;
 
   constructor(
     token: string,
@@ -49,6 +51,8 @@ export class Library {
     outputDir = 'downloads',
     dryRun = false,
     filters: string[] = [],
+    logger: (msg: string) => void = () => {},
+    onProgress?: (done: number, total: number, downloaded: number) => void,
   ) {
     this.token = token;
     this.games = [];
@@ -57,10 +61,12 @@ export class Library {
     this.outputDir = outputDir;
     this.dryRun = dryRun;
     this.filters = filters.map((f) => f.toLowerCase());
+    this.logger = logger;
+    this.onProgress = onProgress;
   }
 
   async loadGamePage(page: number): Promise<number> {
-    console.log(`Loading page ${page}`);
+    this.logger(`Loading page ${page}`);
     const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
       headers: { Authorization: this.token },
     });
@@ -69,14 +75,14 @@ export class Library {
     try {
       j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
     } catch {
-      console.log(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
+      this.logger(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
       return 0;
     }
 
     if (!Array.isArray(j.owned_keys) || j.owned_keys.length === 0) return 0;
 
     for (const s of j.owned_keys) {
-      this.games.push(new Game(s, this.humanFolders, this.outputDir, this.dryRun));
+      this.games.push(new Game(s, this.humanFolders, this.outputDir, this.dryRun, this.logger));
     }
 
     return j.owned_keys.length;
@@ -99,7 +105,7 @@ export class Library {
       const j = (await r.json()) as { user?: UserProfile };
       return j.user ?? null;
     } catch {
-      console.log(`Failed to load profile (HTTP ${r.status})`);
+      this.logger(`Failed to load profile (HTTP ${r.status})`);
       return null;
     }
   }
@@ -112,7 +118,7 @@ export class Library {
       const j = (await r.json()) as { collections?: Collection[] };
       return Array.isArray(j.collections) ? j.collections : [];
     } catch {
-      console.log(`Failed to load collections (HTTP ${r.status})`);
+      this.logger(`Failed to load collections (HTTP ${r.status})`);
       return [];
     }
   }
@@ -128,7 +134,7 @@ export class Library {
       try {
         j = (await r.json()) as { collection_games?: Array<{ game: GameData }> };
       } catch {
-        console.log(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
         break;
       }
       if (!Array.isArray(j.collection_games) || j.collection_games.length === 0) break;
@@ -139,6 +145,7 @@ export class Library {
             this.humanFolders,
             this.outputDir,
             this.dryRun,
+            this.logger,
           ),
         );
       }
@@ -154,7 +161,7 @@ export class Library {
       const j = (await r.json()) as { bundle_keys?: BundleKey[] };
       return Array.isArray(j.bundle_keys) ? j.bundle_keys : [];
     } catch {
-      console.log(`Failed to load bundles (HTTP ${r.status})`);
+      this.logger(`Failed to load bundles (HTTP ${r.status})`);
       return [];
     }
   }
@@ -170,7 +177,7 @@ export class Library {
       try {
         j = (await r.json()) as { bundle_games?: Array<{ game: GameData }> };
       } catch {
-        console.log(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
         break;
       }
       if (!Array.isArray(j.bundle_games) || j.bundle_games.length === 0) break;
@@ -181,6 +188,7 @@ export class Library {
             this.humanFolders,
             this.outputDir,
             this.dryRun,
+            this.logger,
           ),
         );
       }
@@ -188,7 +196,7 @@ export class Library {
     }
   }
 
-  async downloadLibrary(platform?: string): Promise<void> {
+  async downloadLibrary(platform?: string): Promise<{ downloaded: number; errors: number }> {
     const games = this.filters.length
       ? this.games.filter((g) => this.filters.some((f) => g.name.toLowerCase().includes(f)))
       : this.games;
@@ -196,22 +204,27 @@ export class Library {
     let downloaded = 0;
     let errors = 0;
 
+    let done = 0;
+
     const tasks = games.map((g) => async () => {
       try {
-        await g.download(this.token, platform);
-        downloaded++;
-        console.log(`Downloaded ${g.name} (${downloaded} of ${total})`);
+        const hadNewFiles = await g.download(this.token, platform);
+        if (hadNewFiles) {
+          downloaded++;
+          this.logger(`Downloaded ${g.name} (${downloaded} of ${total})`);
+        }
       } catch (e) {
         if (e instanceof NoDownloadError) {
-          console.log(String(e));
+          this.logger(String(e));
           errors++;
         } else {
           throw e;
         }
       }
+      this.onProgress?.(++done, total, downloaded);
     });
 
     await runConcurrently(tasks, this.jobs);
-    console.log(`Downloaded ${downloaded} games, ${errors} errors`);
+    return { downloaded, errors };
   }
 }

@@ -41,8 +41,9 @@ export class Game {
   outputDir: string;
   downloads: Upload[];
   dryRun: boolean;
+  private logger: (msg: string) => void;
 
-  constructor(data: OwnedKeyData, humanFolders = false, outputDir = 'downloads', dryRun = false) {
+  constructor(data: OwnedKeyData, humanFolders = false, outputDir = 'downloads', dryRun = false, logger: (msg: string) => void = () => {}) {
     this.data = data.game;
     this.name = this.data.title;
     this.link = this.data.url;
@@ -74,6 +75,7 @@ export class Game {
     this.dir = path.join(outputDir, cleanPath(this.publisherSlug), cleanPath(this.gameSlug));
     this.downloads = [];
     this.dryRun = dryRun;
+    this.logger = logger;
   }
 
   async loadDownloads(token: string): Promise<void> {
@@ -83,21 +85,21 @@ export class Game {
       ? `https://api.itch.io/games/${this.gameId}/uploads?download_key_id=${this.id}`
       : `https://api.itch.io/games/${this.gameId}/uploads`;
 
-    const r = await fetchWithRetry(url, { headers: { Authorization: token } });
+    const r = await fetchWithRetry(url, { headers: { Authorization: token } }, 3, this.logger);
     let j: { uploads: Upload[] };
 
     try {
       j = (await r.json()) as { uploads: Upload[] };
     } catch {
-      console.log(`Failed to load downloads for ${this.name} (HTTP ${r.status}), skipping`);
+      this.logger(`Failed to load downloads for ${this.name} (HTTP ${r.status}), skipping`);
       return;
     }
 
     this.downloads = Array.isArray(j.uploads) ? j.uploads : [];
   }
 
-  async download(token: string, platform?: string): Promise<void> {
-    console.log('Downloading', this.name);
+  async download(token: string, platform?: string): Promise<boolean> {
+    this.logger(`Downloading ${this.name}`);
 
     await this.loadDownloads(token);
 
@@ -105,7 +107,7 @@ export class Game {
       if (platform != null && Array.isArray(d.traits)) {
         const platformTraits = d.traits.filter((t) => t.startsWith('p_'));
         if (platformTraits.length > 0 && !platformTraits.includes(`p_${platform}`)) {
-          console.log(
+          this.logger(
             `Skipping ${this.name} - ${d.filename ?? d.id} (${platformTraits.join(', ')})`,
           );
           return false;
@@ -114,7 +116,7 @@ export class Game {
       return true;
     });
 
-    if (eligible.length === 0) return;
+    if (eligible.length === 0) return false;
 
     await mkdir(this.dir, { recursive: true });
 
@@ -123,7 +125,7 @@ export class Game {
       if (await this.doDownload(d, token)) wrote++;
     }
 
-    if (wrote === 0) return;
+    if (wrote === 0) return false;
 
     const manifestPath = this.dir + '.json';
     await writeFile(
@@ -141,6 +143,7 @@ export class Game {
         2,
       ),
     );
+    return true;
   }
 
   async doDownload(d: Upload, token: string): Promise<boolean> {
@@ -150,18 +153,18 @@ export class Game {
     const md5Hash = d.md5_hash;
 
     if (this.dryRun) {
-      console.log(`Dry run: ${this.name} - ${filename}`);
+      this.logger(`Dry run: ${this.name} - ${filename}`);
       return false;
     }
 
-    console.log(`Downloading ${filename}`);
+    this.logger(`Downloading ${filename}`);
 
     if (existsSync(outFile)) {
-      console.log(`File already exists: ${filename}`);
+      this.logger(`File already exists: ${filename}`);
 
       if (!md5Hash) {
-        console.log(`Skipping ${this.name} - ${filename}`);
-        return true;
+        this.logger(`Skipping ${this.name} - ${filename}`);
+        return false;
       }
 
       const md5File = withSuffix(outFile, '.md5');
@@ -169,23 +172,23 @@ export class Game {
       if (existsSync(md5File)) {
         const storedMd5 = (await readFile(md5File, 'utf8')).trim();
         if (storedMd5 === md5Hash) {
-          console.log(`Skipping ${this.name} - ${filename}`);
-          return true;
+          this.logger(`Skipping ${this.name} - ${filename}`);
+          return false;
         }
-        console.log(`Checksum mismatch: ${filename}`);
+        this.logger(`Checksum mismatch: ${filename}`);
       } else {
         const computed = await md5sum(outFile);
         if (computed === md5Hash) {
-          console.log(`Skipping ${this.name} - ${filename}`);
+          this.logger(`Skipping ${this.name} - ${filename}`);
           await writeFile(md5File, md5Hash);
-          return true;
+          return false;
         }
       }
 
       const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
 
-      console.log(`Moving ${filename} to old/`);
+      this.logger(`Moving ${filename} to old/`);
       const timestamp = new Date().toISOString().split('T')[0];
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
@@ -197,20 +200,22 @@ export class Game {
         method: 'POST',
         headers: { Authorization: token },
       },
+      3,
+      this.logger,
     );
 
     let sessionJson: { uuid?: string };
     try {
       sessionJson = (await sessionResp.json()) as { uuid?: string };
     } catch {
-      console.log(
+      this.logger(
         `Failed to start download session for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`,
       );
       return false;
     }
 
     if (!sessionJson.uuid) {
-      console.log(
+      this.logger(
         `No session UUID for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`,
       );
       return false;
@@ -221,10 +226,10 @@ export class Game {
       : `https://api.itch.io/uploads/${d.id}/download?api_key=${token}&uuid=${sessionJson.uuid}`;
 
     try {
-      await download(downloadUrl, this.dir, this.name, filename);
+      await download(downloadUrl, this.dir, this.name, filename, this.logger);
     } catch (e) {
       if (e instanceof NoDownloadError) {
-        console.log(`HTTP response is not a download, skipping`);
+        this.logger(`HTTP response is not a download, skipping`);
         await this._logError(
           outFile,
           filename,
@@ -235,7 +240,7 @@ export class Game {
       }
 
       if (e instanceof Error) {
-        console.log(`Download failed: ${this.name} - ${filename}`);
+        this.logger(`Download failed: ${this.name} - ${filename}`);
         const code = (e as NodeJS.ErrnoException).code ?? 'unknown';
         await this._logError(
           outFile,
@@ -251,9 +256,10 @@ export class Game {
 
     if (md5Hash) {
       const computed = await md5sum(outFile);
-      await writeFile(withSuffix(outFile, '.md5'), computed);
       if (computed !== md5Hash) {
-        console.log(`Failed to verify ${filename}`);
+        this.logger(`Failed to verify ${filename}`);
+      } else {
+        await writeFile(withSuffix(outFile, '.md5'), computed);
       }
     }
 

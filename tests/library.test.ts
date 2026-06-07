@@ -122,7 +122,7 @@ describe('Library', () => {
         name: 'Fake Game',
         download:
           fail === 'none'
-            ? vi.fn().mockResolvedValue(undefined)
+            ? vi.fn().mockResolvedValue(true)
             : fail === 'download'
               ? vi.fn().mockRejectedValue(new NoDownloadError('nope'))
               : vi.fn().mockRejectedValue(new Error('unexpected')),
@@ -130,21 +130,19 @@ describe('Library', () => {
     }
 
     it('downloads all games and logs completion', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const lib = new Library('tok');
       lib.games = [fakeGame(), fakeGame()];
-      await lib.downloadLibrary();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Downloaded 2 Games'));
-      consoleSpy.mockRestore();
+      const result = await lib.downloadLibrary();
+      expect(result.downloaded).toBe(2);
+      expect(result.errors).toBe(0);
     });
 
     it('counts NoDownloadError as an error, not a crash', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const lib = new Library('tok');
       lib.games = [fakeGame(), fakeGame('download')];
-      await lib.downloadLibrary();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1 Errors'));
-      consoleSpy.mockRestore();
+      const result = await lib.downloadLibrary();
+      expect(result.downloaded).toBe(1);
+      expect(result.errors).toBe(1);
     });
 
     it('propagates unexpected errors', async () => {

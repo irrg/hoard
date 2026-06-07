@@ -1,6 +1,6 @@
 {
   "name": "@irrg/itchio-hoard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "BSD-3-Clause",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -30,9 +30,11 @@
     "itchio-hoard": "node --import tsx/esm bin/index.ts"
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.0"
+    "@clack/prompts": "^0.9.0",
+    "cli-progress": "^3.12.0"
   },
   "devDependencies": {
+    "@types/cli-progress": "^3.11.0",
     "@types/node": "^22.0.0",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
