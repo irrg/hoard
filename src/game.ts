@@ -156,7 +156,7 @@ export class Game {
     const rawFilename = d.filename ?? d.display_name ?? String(d.id);
     const filename = cleanPath(rawFilename);
     const outFile = path.join(this.dir, filename);
-    const md5Hash = d.md5_hash;
+    const md5Hash = d.md5_hash?.toLowerCase();
 
     if (this.dryRun) {
       this.logger(`Dry run: ${this.name} - ${filename}`);
