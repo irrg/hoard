@@ -106,7 +106,7 @@ export class Bundle {
     }
 
     if (existsSync(outFile)) {
-      const apiMd5 = item.md5 || null;
+      const apiMd5 = item.md5?.toLowerCase() || null;
       if (apiMd5) {
         const md5File = withMd5Suffix(outFile);
         if (existsSync(md5File)) {
