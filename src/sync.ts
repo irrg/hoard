@@ -8,7 +8,9 @@ import cliProgress from "cli-progress";
 
 import { type HoardConfig, type Storefront } from "./config.js";
 
-type SyncResult = { ok: true; downloaded: number; errors: number } | { ok: false; reason: string };
+type SyncResult =
+  | { ok: true; total: number; downloaded: number; errors: number }
+  | { ok: false; reason: string };
 
 const BAR_NAME_WIDTH = 16;
 
@@ -32,6 +34,7 @@ async function syncItchio(
   }
   try {
     const token = await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
+    let lastTotal = 0;
     const lib = new ItchioLibrary(
       token,
       jobs,
@@ -40,14 +43,18 @@ async function syncItchio(
       false,
       [],
       () => {},
-      (done, total, downloaded) => bar.update(done, { status: barStatus(done, total, downloaded) }),
+      (done, total, downloaded) => {
+        lastTotal = total;
+        bar.update(done, { status: barStatus(done, total, downloaded) });
+      },
       deep,
     );
     await lib.loadOwnedGames();
+    lastTotal = lib.games.length;
     bar.setTotal(lib.games.length);
     bar.update(0, { status: barStatus(0, lib.games.length, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
-    return { ok: true, downloaded, errors };
+    return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
@@ -62,6 +69,7 @@ async function syncDrivethru(
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: "not configured" };
   try {
+    let lastTotal = 0;
     const lib = new DrivethruLibrary({
       apiKey: config.HOARD_DRIVETHRU_API_KEY,
       outputDir: join(outputDir, "drivethru"),
@@ -72,15 +80,18 @@ async function syncDrivethru(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, total, downloaded) =>
-        bar.update(done, { status: barStatus(done, total, downloaded) }),
+      onProgress: (done, total, downloaded) => {
+        lastTotal = total;
+        bar.update(done, { status: barStatus(done, total, downloaded) });
+      },
     });
     await lib.authenticate();
     await lib.loadProducts();
+    lastTotal = lib.products.length;
     bar.setTotal(lib.products.length);
     bar.update(0, { status: barStatus(0, lib.products.length, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
-    return { ok: true, downloaded, errors };
+    return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
@@ -95,6 +106,7 @@ async function syncHumblebundle(
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: "not configured" };
   try {
+    let lastTotal = 0;
     const lib = new HumbleLibrary({
       cookie: config.HOARD_HUMBLEBUNDLE_SESSION,
       outputDir: join(outputDir, "humblebundle"),
@@ -105,15 +117,17 @@ async function syncHumblebundle(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, total, downloaded) =>
-        bar.update(done, { status: barStatus(done, total, downloaded) }),
+      onProgress: (done, total, downloaded) => {
+        lastTotal = total;
+        bar.update(done, { status: barStatus(done, total, downloaded) });
+      },
     });
     await lib.loadOrders();
-    const hbTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
-    bar.setTotal(hbTotal);
-    bar.update(0, { status: barStatus(0, hbTotal, 0) });
+    lastTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
+    bar.setTotal(lastTotal);
+    bar.update(0, { status: barStatus(0, lastTotal, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
-    return { ok: true, downloaded, errors };
+    return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
@@ -139,6 +153,7 @@ async function syncBundleofholding(
       );
     }
     const bundles = await fetchCabinet(cookie);
+    let lastTotal = 0;
     const lib = new BoHLibrary({
       outputDir: join(outputDir, "bundleofholding"),
       jobs,
@@ -148,6 +163,7 @@ async function syncBundleofholding(
       filters: [],
       logger: () => {},
       onProgress: (done, total, downloaded) => {
+        lastTotal = total;
         if (done === 0) {
           bar.setTotal(total);
           bar.update(0, { status: barStatus(0, total, 0) });
@@ -157,7 +173,7 @@ async function syncBundleofholding(
       },
     });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
-    return { ok: true, downloaded, errors };
+    return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
@@ -186,7 +202,7 @@ export async function cmdSync(
     storefronts.map((sf) => [sf, multiBar.create(1, 0, { name: barName(sf), status: "..." })]),
   );
 
-  await Promise.all(
+  const results = await Promise.all(
     storefronts.map(async (sf) => {
       const bar = bars.get(sf)!;
       let result: SyncResult;
@@ -207,11 +223,21 @@ export async function cmdSync(
       bar.setTotal(1);
       bar.update(1, {
         status: result.ok
-          ? `✓ ${result.downloaded} new, ${result.errors} errors`
+          ? [`✓ ${result.downloaded} new`, result.errors > 0 ? `${result.errors} errors` : ""]
+              .filter(Boolean)
+              .join(", ")
           : `✗ ${result.reason}`,
       });
+      return result;
     }),
   );
 
   multiBar.stop();
+
+  const totalItems = results.reduce((s, r) => s + (r.ok ? r.total : 0), 0);
+  const totalNew = results.reduce((s, r) => s + (r.ok ? r.downloaded : 0), 0);
+  const totalErrors = results.reduce((s, r) => s + (r.ok ? r.errors : 0), 0);
+  const summary = [`${totalItems} total`, `${totalNew} new`];
+  if (totalErrors > 0) summary.push(`${totalErrors} errors`);
+  console.log(`\n${summary.join(", ")}`);
 }
