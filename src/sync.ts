@@ -21,14 +21,13 @@ async function syncItchio(
   outputDir: string,
   jobs: number,
   deep: boolean,
-  multiBar: cliProgress.MultiBar,
+  bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
     return { ok: false, reason: "not configured" };
   }
   try {
     const token = await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
-    let bar: cliProgress.SingleBar | null = null;
     const lib = new ItchioLibrary(
       token,
       jobs,
@@ -37,14 +36,12 @@ async function syncItchio(
       false,
       [],
       () => {},
-      (done, _total, downloaded) => bar?.update(done, { downloaded }),
+      (done, _total, downloaded) => bar.update(done, { downloaded }),
       deep,
     );
     await lib.loadOwnedGames();
-    if (lib.games.length > 0)
-      bar = multiBar.create(lib.games.length, 0, { name: barName("itchio"), downloaded: 0 });
+    bar.setTotal(lib.games.length);
     const { downloaded, errors } = await lib.downloadLibrary();
-    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -56,11 +53,10 @@ async function syncDrivethru(
   outputDir: string,
   jobs: number,
   deep: boolean,
-  multiBar: cliProgress.MultiBar,
+  bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: "not configured" };
   try {
-    let bar: cliProgress.SingleBar | null = null;
     const lib = new DrivethruLibrary({
       apiKey: config.HOARD_DRIVETHRU_API_KEY,
       outputDir: join(outputDir, "drivethru"),
@@ -71,14 +67,12 @@ async function syncDrivethru(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
+      onProgress: (done, _total, downloaded) => bar.update(done, { downloaded }),
     });
     await lib.authenticate();
     await lib.loadProducts();
-    if (lib.products.length > 0)
-      bar = multiBar.create(lib.products.length, 0, { name: barName("drivethru"), downloaded: 0 });
+    bar.setTotal(lib.products.length);
     const { downloaded, errors } = await lib.downloadLibrary();
-    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -90,11 +84,10 @@ async function syncHumblebundle(
   outputDir: string,
   jobs: number,
   deep: boolean,
-  multiBar: cliProgress.MultiBar,
+  bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: "not configured" };
   try {
-    let bar: cliProgress.SingleBar | null = null;
     const lib = new HumbleLibrary({
       cookie: config.HOARD_HUMBLEBUNDLE_SESSION,
       outputDir: join(outputDir, "humblebundle"),
@@ -105,17 +98,11 @@ async function syncHumblebundle(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
+      onProgress: (done, _total, downloaded) => bar.update(done, { downloaded }),
     });
     await lib.loadOrders();
-    const hbTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
-    if (hbTotal > 0)
-      bar = multiBar.create(hbTotal, 0, {
-        name: barName("humblebundle"),
-        downloaded: 0,
-      });
+    bar.setTotal(lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0));
     const { downloaded, errors } = await lib.downloadLibrary();
-    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -127,7 +114,7 @@ async function syncBundleofholding(
   outputDir: string,
   jobs: number,
   deep: boolean,
-  multiBar: cliProgress.MultiBar,
+  bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
@@ -142,7 +129,6 @@ async function syncBundleofholding(
       );
     }
     const bundles = await fetchCabinet(cookie);
-    let bar: cliProgress.SingleBar | null = null;
     const lib = new BoHLibrary({
       outputDir: join(outputDir, "bundleofholding"),
       jobs,
@@ -152,13 +138,11 @@ async function syncBundleofholding(
       filters: [],
       logger: () => {},
       onProgress: (done, total, downloaded) => {
-        if (!bar && total > 0)
-          bar = multiBar.create(total, done, { name: barName("bundleofholding"), downloaded });
-        else bar?.update(done, { downloaded });
+        if (done === 0) bar.setTotal(total);
+        bar.update(done, { downloaded });
       },
     });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
-    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -184,23 +168,29 @@ export async function cmdSync(
     cliProgress.Presets.shades_classic,
   );
 
+  const bars = new Map(
+    storefronts.map((sf) => [sf, multiBar.create(1, 0, { name: barName(sf), downloaded: 0 })]),
+  );
+
   const resultPairs = await Promise.all(
     storefronts.map(async (sf) => {
+      const bar = bars.get(sf)!;
       let result: SyncResult;
       switch (sf) {
         case "itchio":
-          result = await syncItchio(config, outputDir, jobs, deep, multiBar);
+          result = await syncItchio(config, outputDir, jobs, deep, bar);
           break;
         case "drivethru":
-          result = await syncDrivethru(config, outputDir, jobs, deep, multiBar);
+          result = await syncDrivethru(config, outputDir, jobs, deep, bar);
           break;
         case "humblebundle":
-          result = await syncHumblebundle(config, outputDir, jobs, deep, multiBar);
+          result = await syncHumblebundle(config, outputDir, jobs, deep, bar);
           break;
         case "bundleofholding":
-          result = await syncBundleofholding(config, outputDir, jobs, deep, multiBar);
+          result = await syncBundleofholding(config, outputDir, jobs, deep, bar);
           break;
       }
+      multiBar.remove(bar);
       return { storefront: sf, result };
     }),
   );
