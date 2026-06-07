@@ -34,6 +34,7 @@ export class Library {
     this.bundleOptions = {
       cookie: options.cookie,
       outputDir: options.outputDir,
+      jobs: options.jobs,
       platform: options.platform,
       extInclude: options.extInclude,
       extExclude: options.extExclude,
@@ -128,7 +129,7 @@ export class Library {
       }
     });
 
-    await runConcurrently(tasks, this.jobs);
+    await runConcurrently(tasks, 1);
     return { downloaded, errors };
   }
 }

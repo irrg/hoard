@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
 import path from 'path';
 
-import { streamToFile, md5sum, cleanPath } from './utils.js';
+import { streamToFile, md5sum, cleanPath, runConcurrently } from './utils.js';
 
 export interface DownloadStructItem {
   url: { web: string; bittorrent?: string };
@@ -29,6 +29,7 @@ export interface BundleData {
 export interface BundleOptions {
   cookie: string;
   outputDir: string;
+  jobs?: number;
   platform?: string;
   extInclude: string[];
   extExclude: string[];
@@ -99,12 +100,13 @@ export class Bundle {
 
     let newFiles = 0;
     let errors = 0;
-    for (const { item, subDir, productName } of work) {
+    const tasks = work.map(({ item, subDir, productName }) => async () => {
       const result = await this.doDownload(item, subDir, productName);
       onFile?.(result);
       if (result === 'downloaded') newFiles++;
       else if (result === 'error') errors++;
-    }
+    });
+    await runConcurrently(tasks, this.options.jobs ?? 1);
     return { newFiles, errors };
   }
 
