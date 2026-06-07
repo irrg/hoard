@@ -6,12 +6,14 @@ import { fetchBundlePage, type DownloadFile } from './bundle.js';
 import { type BundleRef } from './cabinet.js';
 import { cleanPath, md5sum, runConcurrently, streamToFile } from './utils.js';
 
-interface LibraryOptions {
+export interface LibraryOptions {
   outputDir: string;
   jobs: number;
   dryRun: boolean;
   cookie: string;
   filters: string[];
+  logger?: (msg: string) => void;
+  onProgress?: (done: number, total: number, downloaded: number) => void;
 }
 
 export class Library {
@@ -20,6 +22,8 @@ export class Library {
   private dryRun: boolean;
   private cookie: string;
   private filters: string[];
+  private logger: (msg: string) => void;
+  private onProgress?: (done: number, total: number, downloaded: number) => void;
 
   constructor(opts: LibraryOptions) {
     this.outputDir = opts.outputDir;
@@ -27,6 +31,8 @@ export class Library {
     this.dryRun = opts.dryRun;
     this.cookie = opts.cookie;
     this.filters = opts.filters.map((f) => f.toLowerCase());
+    this.logger = opts.logger ?? (() => {});
+    this.onProgress = opts.onProgress;
   }
 
   private matchesFilter(filename: string): boolean {
@@ -35,31 +41,37 @@ export class Library {
     return this.filters.some((f) => lower.includes(f));
   }
 
-  async downloadBundles(bundles: BundleRef[]): Promise<void> {
-    let done = 0;
+  async downloadBundles(bundles: BundleRef[]): Promise<{ downloaded: number; errors: number }> {
+    const total = bundles.length;
+    let downloaded = 0;
     let errors = 0;
+    let processed = 0;
 
     for (const ref of bundles) {
       const page = await fetchBundlePage(ref.key, this.cookie);
       const dir = join(this.outputDir, cleanPath(page.title));
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
 
-      if (files.length === 0) continue;
+      if (files.length === 0) {
+        this.onProgress?.(++processed, total, downloaded);
+        continue;
+      }
 
-      console.log('Downloading', page.title);
-
+      this.logger(`Downloading ${page.title}`);
       if (!this.dryRun) await mkdir(dir, { recursive: true });
 
+      let bundleHadNewFiles = false;
       const tasks = files.map((f) => async () => {
-        const ok = await this.downloadFile(page.title, dir, f);
-        if (ok) done++;
-        else errors++;
+        const wrote = await this.downloadFile(page.title, dir, f);
+        if (wrote) bundleHadNewFiles = true;
       });
 
       await runConcurrently(tasks, this.jobs);
+      if (bundleHadNewFiles) downloaded++;
+      this.onProgress?.(++processed, total, downloaded);
     }
 
-    console.log(`Downloaded ${done} files, ${errors} errors`);
+    return { downloaded, errors };
   }
 
   async listBundles(bundles: BundleRef[]): Promise<void> {
@@ -67,9 +79,9 @@ export class Library {
       const page = await fetchBundlePage(ref.key, this.cookie);
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
       if (files.length === 0) continue;
-      console.log(`\n${page.title} [${ref.key}]`);
+      this.logger(`\n${page.title} [${ref.key}]`);
       for (const f of files) {
-        console.log(`  ${f.filename}`);
+        this.logger(`  ${f.filename}`);
       }
     }
   }
@@ -84,54 +96,54 @@ export class Library {
 
     try {
       if (existsSync(outPath)) {
-        console.log(`File already exists: ${file.filename}`);
+        this.logger(`File already exists: ${file.filename}`);
         if (file.md5) {
           if (existsSync(sidecarPath)) {
             const stored = (await readFile(sidecarPath, 'utf8')).trim();
             if (stored === file.md5) {
-              console.log(`Skipping ${bundleName} - ${file.filename}`);
-              return true;
+              this.logger(`Skipping ${bundleName} - ${file.filename}`);
+              return false;
             }
           } else {
             const actual = await md5sum(outPath);
             if (actual === file.md5) {
               await writeFile(sidecarPath, file.md5);
-              console.log(`Skipping ${bundleName} - ${file.filename}`);
-              return true;
+              this.logger(`Skipping ${bundleName} - ${file.filename}`);
+              return false;
             }
           }
-          console.log(`Checksum mismatch: ${file.filename}`);
+          this.logger(`Checksum mismatch: ${file.filename}`);
           const oldDir = join(dir, 'old');
           await mkdir(oldDir, { recursive: true });
-          console.log(`Moving ${file.filename} to old/`);
+          this.logger(`Moving ${file.filename} to old/`);
           await rename(outPath, join(oldDir, file.filename));
         } else {
-          console.log(`Skipping ${bundleName} - ${file.filename}`);
-          return true;
+          this.logger(`Skipping ${bundleName} - ${file.filename}`);
+          return false;
         }
       }
 
       if (this.dryRun) {
-        console.log(`Dry run: ${bundleName} - ${file.filename}`);
-        return true;
+        this.logger(`Dry run: ${bundleName} - ${file.filename}`);
+        return false;
       }
 
-      console.log(`Downloading ${file.filename}`);
+      this.logger(`Downloading ${file.filename}`);
       await streamToFile(file.url, outPath);
-      console.log(`Downloaded ${file.filename}`);
+      this.logger(`Downloaded ${file.filename}`);
 
       if (file.md5) {
         const actual = await md5sum(outPath);
         await writeFile(sidecarPath, actual);
         if (actual !== file.md5) {
-          console.log(`Failed to verify ${file.filename}`);
+          this.logger(`Failed to verify ${file.filename}`);
         }
       }
 
       return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
+      this.logger(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
       await appendFile(
         join(this.outputDir, 'errors.txt'),
         `${bundleName} - ${file.filename}: ${msg}\n`,

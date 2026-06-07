@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { intro, text, password as passwordPrompt, outro, isCancel, cancel } from '@clack/prompts';
+import cliProgress from 'cli-progress';
 
 import { loginWeb, fetchCabinet, Library } from '../src/index.js';
 
@@ -49,12 +53,29 @@ if (isNaN(jobs) || jobs < 1) {
 
 const keys = (args.key ?? []).flatMap((k) => k.split(',').map((s) => s.trim())).filter(Boolean);
 
-let cookie: string;
+let cookie = '';
 let bundles: { name: string; key: string }[];
 
 if (args.cookie) {
   cookie = args.cookie;
 } else {
+  try {
+    const raw = await readFile(join(homedir(), '.hoard', 'config.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as Record<string, unknown>;
+    const savedCookie = (cfg['HOARD_BUNDLEOFHOLDING_COOKIE'] as string) ?? '';
+    const savedEmail = (cfg['HOARD_BUNDLEOFHOLDING_EMAIL'] as string) ?? '';
+    const savedPassword = (cfg['HOARD_BUNDLEOFHOLDING_PASSWORD'] as string) ?? '';
+    if (savedCookie) {
+      cookie = savedCookie;
+    } else if (savedEmail && savedPassword) {
+      cookie = await loginWeb(savedEmail, savedPassword);
+    }
+  } catch {
+    // no config
+  }
+}
+
+if (!cookie) {
   intro('bundleofholding-hoard');
 
   let email = args.email ?? '';
@@ -81,12 +102,13 @@ if (args.cookie) {
   cookie = await loginWeb(email, pass);
 }
 
-if (keys.length > 0) {
-  bundles = keys.map((k) => ({ name: k, key: k }));
-} else {
-  bundles = await fetchCabinet(cookie);
-  console.log(`Found ${bundles.length} bundle(s).`);
+function barOptions(): cliProgress.Options {
+  return {
+    format: 'Downloading |{bar}| {value}/{total} ({downloaded} new)',
+  };
 }
+
+let bar: cliProgress.SingleBar | null = null;
 
 const lib = new Library({
   outputDir: args.output ?? 'downloads',
@@ -94,12 +116,24 @@ const lib = new Library({
   dryRun: args['dry-run'] ?? false,
   cookie,
   filters: args.filter ?? [],
+  logger: () => {},
+  onProgress: (done, total, downloaded) => bar?.update(done, { downloaded }),
 });
+
+if (keys.length > 0) {
+  bundles = keys.map((k) => ({ name: k, key: k }));
+} else {
+  process.stdout.write('Fetching Wizard\'s Cabinet...\n');
+  bundles = await fetchCabinet(cookie);
+  process.stdout.write(`Found ${bundles.length} bundle(s).\n`);
+}
 
 if (args.list) {
   await lib.listBundles(bundles);
 } else {
-  await lib.downloadBundles(bundles);
+  bar = new cliProgress.SingleBar(barOptions(), cliProgress.Presets.shades_classic);
+  bar.start(bundles.length, 0, { downloaded: 0 });
+  const result = await lib.downloadBundles(bundles);
+  bar.stop();
+  outro(`Downloaded ${result.downloaded} new files.`);
 }
-
-outro('Done.');

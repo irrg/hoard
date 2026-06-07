@@ -1,6 +1,6 @@
 {
   "name": "@irrg/bundleofholding-hoard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "BSD-3-Clause",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -31,9 +31,11 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.9.0",
+    "cli-progress": "^3.12.0",
     "node-html-parser": "^7.0.0"
   },
   "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
     "@types/node": "^22.0.0",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
