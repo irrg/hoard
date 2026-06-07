@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn(),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+}));
+
 import type { Game } from '../src/game.js';
 import { Library } from '../src/library.js';
 import type { UserProfile, Collection, BundleKey } from '../src/library.js';
@@ -113,6 +120,41 @@ describe('Library', () => {
       await lib.loadOwnedGames();
       expect(lib.games).toHaveLength(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads from cache when page 1 sentinel matches', async () => {
+      const { existsSync } = await import('fs');
+      const { readFile } = await import('fs/promises');
+      vi.mocked(existsSync).mockReturnValueOnce(true);
+      const cached = [gameFixture(1), gameFixture(2), gameFixture(3)];
+      vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify(cached) as unknown as Buffer);
+      fetchMock.mockResolvedValueOnce(
+        mockResponse({ owned_keys: [gameFixture(1), gameFixture(2)] }),
+      );
+
+      const lib = new Library('tok');
+      await lib.loadOwnedGames();
+
+      expect(lib.games).toHaveLength(3);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // only the sentinel fetch
+    });
+
+    it('refetches all pages when sentinel does not match cache', async () => {
+      const { existsSync } = await import('fs');
+      const { readFile } = await import('fs/promises');
+      vi.mocked(existsSync).mockReturnValueOnce(true);
+      const cached = [gameFixture(99), gameFixture(2)]; // different first entry
+      vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify(cached) as unknown as Buffer);
+      fetchMock
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [gameFixture(1), gameFixture(2)] }))
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [gameFixture(3)] }))
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [] }));
+
+      const lib = new Library('tok');
+      await lib.loadOwnedGames();
+
+      expect(lib.games).toHaveLength(3);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
   });
 

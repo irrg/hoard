@@ -1,3 +1,7 @@
+import { existsSync } from 'fs';
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import { dirname, join } from 'path';
+
 import { Game, GameData, OwnedKeyData } from './game.js';
 import { NoDownloadError, fetchWithRetry, runConcurrently } from './utils.js';
 
@@ -81,21 +85,8 @@ export class Library {
 
   async loadGamePage(page: number): Promise<number> {
     this.logger(`Loading page ${page}`);
-    const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
-      headers: { Authorization: this.token },
-    });
-
-    let j: { owned_keys?: OwnedKeyData[] };
-    try {
-      j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
-    } catch {
-      this.logger(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
-      return 0;
-    }
-
-    if (!Array.isArray(j.owned_keys) || j.owned_keys.length === 0) return 0;
-
-    for (const s of j.owned_keys) {
+    const keys = await this._fetchKeyPage(page);
+    for (const s of keys) {
       this.games.push(
         new Game(
           s,
@@ -107,16 +98,70 @@ export class Library {
         ),
       );
     }
+    return keys.length;
+  }
 
-    return j.owned_keys.length;
+  private async _fetchKeyPage(page: number): Promise<OwnedKeyData[]> {
+    const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
+      headers: { Authorization: this.token },
+    });
+    try {
+      const j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
+      return Array.isArray(j.owned_keys) ? j.owned_keys : [];
+    } catch {
+      this.logger(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
+      return [];
+    }
+  }
+
+  private _makeGame(s: OwnedKeyData): Game {
+    return new Game(
+      s,
+      this.humanFolders,
+      this.outputDir,
+      this.dryRun,
+      this.logger,
+      this.deep ?? false,
+    );
   }
 
   async loadOwnedGames(): Promise<void> {
-    let page = 1;
+    const cacheFile = join(this.outputDir, '.data', 'owned-keys.json');
+
+    const page1 = await this._fetchKeyPage(1);
+    if (page1.length === 0) return;
+
+    if (!this.deep && existsSync(cacheFile)) {
+      try {
+        const cached = JSON.parse(await readFile(cacheFile, 'utf-8')) as OwnedKeyData[];
+        const sentinelIds = page1.map((k) => k.id).join(',');
+        const cachedHeadIds = cached
+          .slice(0, page1.length)
+          .map((k) => k.id)
+          .join(',');
+        if (sentinelIds === cachedHeadIds) {
+          for (const s of cached) this.games.push(this._makeGame(s));
+          return;
+        }
+      } catch {}
+    }
+
+    const allKeys = [...page1];
+    let page = 2;
     while (true) {
-      const n = await this.loadGamePage(page);
-      if (n === 0) break;
+      const keys = await this._fetchKeyPage(page);
+      if (keys.length === 0) break;
+      allKeys.push(...keys);
       page++;
+    }
+
+    for (const s of allKeys) this.games.push(this._makeGame(s));
+
+    if (!this.dryRun) {
+      try {
+        await mkdir(dirname(cacheFile), { recursive: true });
+        await writeFile(cacheFile, JSON.stringify(allKeys, null, 2));
+      } catch {}
     }
   }
 
