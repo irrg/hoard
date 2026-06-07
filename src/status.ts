@@ -1,4 +1,4 @@
-import { CONFIG_PATH, type Storefront, STOREFRONTS, readConfig } from "./config.js";
+import { CONFIG_PATH, type Storefront, STOREFRONTS, readConfig } from './config.js';
 
 export async function cmdStatus(storefronts: Storefront[] = [...STOREFRONTS]): Promise<void> {
   const config = await readConfig();
@@ -6,14 +6,14 @@ export async function cmdStatus(storefronts: Storefront[] = [...STOREFRONTS]): P
   const bohConfigured = config.HOARD_BUNDLEOFHOLDING_COOKIE
     ? config.HOARD_BUNDLEOFHOLDING_COOKIE
     : config.HOARD_BUNDLEOFHOLDING_EMAIL && config.HOARD_BUNDLEOFHOLDING_PASSWORD
-      ? "password"
-      : "";
+      ? 'password'
+      : '';
 
   const all: Record<Storefront, [string, boolean]> = {
-    itchio: [config.HOARD_ITCHIO_USERNAME && config.HOARD_ITCHIO_PASSWORD ? "password" : "", false],
+    itchio: [config.HOARD_ITCHIO_USERNAME && config.HOARD_ITCHIO_PASSWORD ? 'password' : '', false],
     drivethru: [config.HOARD_DRIVETHRU_API_KEY, false],
     humblebundle: [config.HOARD_HUMBLEBUNDLE_SESSION, true],
-    bundleofholding: [bohConfigured, config.HOARD_BUNDLEOFHOLDING_COOKIE !== ""],
+    bundleofholding: [bohConfigured, config.HOARD_BUNDLEOFHOLDING_COOKIE !== ''],
   };
 
   console.log(`Config: ${CONFIG_PATH}`);

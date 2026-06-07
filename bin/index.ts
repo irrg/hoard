@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-import { parseArgs } from "node:util";
+import { parseArgs } from 'node:util';
 
-import { type Storefront, STOREFRONTS, isStorefront, readConfig } from "../src/config.js";
-import { cmdAuth } from "../src/auth.js";
-import { cmdCheck } from "../src/check.js";
-import { cmdStatus } from "../src/status.js";
-import { cmdSync } from "../src/sync.js";
+import { cmdAuth } from '../src/auth.js';
+import { cmdCheck } from '../src/check.js';
+import { type Storefront, STOREFRONTS, isStorefront, readConfig } from '../src/config.js';
+import { cmdStatus } from '../src/status.js';
+import { cmdSync } from '../src/sync.js';
 
 const argv = process.argv.slice(2);
 const { values: args, positionals } = parseArgs({
-  args: argv[0] === "--" ? argv.slice(1) : argv,
+  args: argv[0] === '--' ? argv.slice(1) : argv,
   options: {
-    jobs: { type: "string", short: "j" },
-    output: { type: "string", short: "o" },
-    deep: { type: "boolean" },
-    help: { type: "boolean", short: "h" },
+    jobs: { type: 'string', short: 'j' },
+    output: { type: 'string', short: 'o' },
+    deep: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
   },
   allowPositionals: true,
   strict: true,
@@ -28,7 +28,7 @@ Commands:
   status [storefront...]      Show configuration and credential state
   sync [storefront...]        Sync all configured storefronts, or specific ones
 
-Storefronts: ${STOREFRONTS.join(", ")}
+Storefronts: ${STOREFRONTS.join(', ')}
 
 Options:
   -j, --jobs <n>      Concurrent downloads (overrides config)
@@ -51,7 +51,7 @@ if (!command) {
 function parseStorefronts(names: string[]): Storefront[] {
   for (const sf of names) {
     if (!isStorefront(sf)) {
-      console.error(`Unknown storefront: "${sf}"\nValid storefronts: ${STOREFRONTS.join(", ")}`);
+      console.error(`Unknown storefront: "${sf}"\nValid storefronts: ${STOREFRONTS.join(', ')}`);
       process.exit(1);
     }
   }
@@ -59,23 +59,23 @@ function parseStorefronts(names: string[]): Storefront[] {
 }
 
 switch (command) {
-  case "auth": {
+  case 'auth': {
     await cmdAuth(parseStorefronts(rest));
     break;
   }
 
-  case "check": {
+  case 'check': {
     const config = await readConfig();
     await cmdCheck(config, parseStorefronts(rest));
     break;
   }
 
-  case "status": {
+  case 'status': {
     await cmdStatus(parseStorefronts(rest));
     break;
   }
 
-  case "sync": {
+  case 'sync': {
     const config = await readConfig();
 
     const jobs = args.jobs != null ? parseInt(args.jobs, 10) : config.HOARD_JOBS;

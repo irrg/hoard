@@ -1,15 +1,15 @@
-import { spinner } from "@clack/prompts";
-import { loginWeb as bohLogin } from "@irrg/bundleofholding-hoard";
-import { Library as DrivethruLibrary } from "@irrg/drivethru-hoard";
-import { loginAPI as itchioLogin } from "@irrg/itchio-hoard";
+import { spinner } from '@clack/prompts';
+import { loginWeb as bohLogin } from '@irrg/bundleofholding-hoard';
+import { Library as DrivethruLibrary } from '@irrg/drivethru-hoard';
+import { loginAPI as itchioLogin } from '@irrg/itchio-hoard';
 
-import { type HoardConfig, STOREFRONTS, type Storefront } from "./config.js";
+import { type HoardConfig, STOREFRONTS, type Storefront } from './config.js';
 
 type CheckResult = { ok: true } | { ok: false; reason: string };
 
 async function checkItchio(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
-    return { ok: false, reason: "not configured" };
+    return { ok: false, reason: 'not configured' };
   }
   try {
     await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
@@ -21,12 +21,12 @@ async function checkItchio(config: HoardConfig): Promise<CheckResult> {
 
 async function checkDrivethru(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) {
-    return { ok: false, reason: "not configured" };
+    return { ok: false, reason: 'not configured' };
   }
   try {
     const lib = new DrivethruLibrary({
       apiKey: config.HOARD_DRIVETHRU_API_KEY,
-      outputDir: "",
+      outputDir: '',
       jobs: 1,
       compat: false,
       omitPublisher: false,
@@ -43,10 +43,10 @@ async function checkDrivethru(config: HoardConfig): Promise<CheckResult> {
 
 async function checkHumblebundle(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) {
-    return { ok: false, reason: "not configured" };
+    return { ok: false, reason: 'not configured' };
   }
   try {
-    const r = await fetch("https://www.humblebundle.com/api/v1/user/order", {
+    const r = await fetch('https://www.humblebundle.com/api/v1/user/order', {
       headers: { Cookie: `_simpleauth_sess=${config.HOARD_HUMBLEBUNDLE_SESSION}` },
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -58,7 +58,7 @@ async function checkHumblebundle(config: HoardConfig): Promise<CheckResult> {
 
 async function checkBundleofholding(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_BUNDLEOFHOLDING_EMAIL || !config.HOARD_BUNDLEOFHOLDING_PASSWORD) {
-    return { ok: false, reason: "not configured" };
+    return { ok: false, reason: 'not configured' };
   }
   try {
     await bohLogin(config.HOARD_BUNDLEOFHOLDING_EMAIL, config.HOARD_BUNDLEOFHOLDING_PASSWORD);
