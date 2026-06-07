@@ -43,7 +43,13 @@ export class Game {
   dryRun: boolean;
   private logger: (msg: string) => void;
 
-  constructor(data: OwnedKeyData, humanFolders = false, outputDir = 'downloads', dryRun = false, logger: (msg: string) => void = () => {}) {
+  constructor(
+    data: OwnedKeyData,
+    humanFolders = false,
+    outputDir = 'downloads',
+    dryRun = false,
+    logger: (msg: string) => void = () => {},
+  ) {
     this.data = data.game;
     this.name = this.data.title;
     this.link = this.data.url;
