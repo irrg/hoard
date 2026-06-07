@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
 import path, { dirname, extname, relative } from 'path';
 
@@ -25,6 +25,7 @@ export interface ProductOptions {
   compat: boolean;
   omitPublisher: boolean;
   dryRun: boolean;
+  deep?: boolean;
   logger: (msg: string) => void;
 }
 
@@ -56,6 +57,7 @@ export class Product {
 
   async download(bearerToken: string): Promise<boolean> {
     if (this.data.files.length === 0) return false;
+    if (!this.options.deep && hasFiles(this.dir)) return false;
 
     this.options.logger(`Downloading ${this.name}`);
 
@@ -219,6 +221,15 @@ export class Product {
         ` ---------------------------------------------------------\n`,
       ].join('\n'),
     );
+  }
+}
+
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
   }
 }
 

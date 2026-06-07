@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock fs and fs/promises before importing product
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
+  readdirSync: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -32,6 +33,7 @@ import type { ProductData, DownloadItemData, ProductOptions } from '../src/produ
 import { streamToFile, md5sum } from '../src/utils.js';
 
 const existsSyncMock = vi.mocked(fsSync.existsSync);
+const readdirSyncMock = vi.mocked(fsSync.readdirSync);
 const writeFileMock = vi.mocked(fsPromises.writeFile);
 const readFileMock = vi.mocked(fsPromises.readFile);
 const mkdirMock = vi.mocked(fsPromises.mkdir);
@@ -184,6 +186,24 @@ describe('Product.download', () => {
       expect.any(String),
     );
   });
+
+  it('returns false without any API calls when dir has files and deep is false', async () => {
+    existsSyncMock.mockReturnValueOnce(true); // dir exists
+    readdirSyncMock.mockReturnValueOnce(['file.pdf'] as unknown as ReturnType<
+      typeof fsSync.readdirSync
+    >);
+    const p = makeProduct();
+    const result = await p.download('tok');
+    expect(result).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not skip when deep is true even if dir has files', async () => {
+    existsSyncMock.mockReturnValueOnce(false); // outFile does not exist → download
+    const p = makeProduct({}, { deep: true } as any);
+    const result = await p.download('tok');
+    expect(result).toBe(true);
+  });
 });
 
 describe('Product.doDownload', () => {
@@ -193,6 +213,7 @@ describe('Product.doDownload', () => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     existsSyncMock.mockReturnValue(false);
+    readdirSyncMock.mockReturnValue([] as unknown as ReturnType<typeof fsSync.readdirSync>);
     mkdirMock.mockResolvedValue(undefined);
     writeFileMock.mockResolvedValue(undefined);
     streamToFileMock.mockResolvedValue(undefined);

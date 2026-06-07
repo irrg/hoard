@@ -13,6 +13,7 @@ export interface LibraryOptions {
   compat: boolean;
   omitPublisher: boolean;
   dryRun: boolean;
+  deep?: boolean;
   filters: string[];
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
@@ -48,6 +49,7 @@ export class Library {
       compat: options.compat,
       omitPublisher: options.omitPublisher,
       dryRun: options.dryRun,
+      deep: options.deep,
       logger: this.logger,
     };
   }
