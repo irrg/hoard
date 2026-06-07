@@ -16,6 +16,10 @@ function barName(sf: string): string {
   return sf.padEnd(BAR_NAME_WIDTH);
 }
 
+function barStatus(done: number, total: number, downloaded: number): string {
+  return `${done}/${total} (${downloaded} new)`;
+}
+
 async function syncItchio(
   config: HoardConfig,
   outputDir: string,
@@ -36,11 +40,12 @@ async function syncItchio(
       false,
       [],
       () => {},
-      (done, _total, downloaded) => bar.update(done, { downloaded }),
+      (done, total, downloaded) => bar.update(done, { status: barStatus(done, total, downloaded) }),
       deep,
     );
     await lib.loadOwnedGames();
     bar.setTotal(lib.games.length);
+    bar.update(0, { status: barStatus(0, lib.games.length, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -67,11 +72,13 @@ async function syncDrivethru(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, _total, downloaded) => bar.update(done, { downloaded }),
+      onProgress: (done, total, downloaded) =>
+        bar.update(done, { status: barStatus(done, total, downloaded) }),
     });
     await lib.authenticate();
     await lib.loadProducts();
     bar.setTotal(lib.products.length);
+    bar.update(0, { status: barStatus(0, lib.products.length, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -98,10 +105,13 @@ async function syncHumblebundle(
       deep,
       filters: [],
       logger: () => {},
-      onProgress: (done, _total, downloaded) => bar.update(done, { downloaded }),
+      onProgress: (done, total, downloaded) =>
+        bar.update(done, { status: barStatus(done, total, downloaded) }),
     });
     await lib.loadOrders();
-    bar.setTotal(lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0));
+    const hbTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
+    bar.setTotal(hbTotal);
+    bar.update(0, { status: barStatus(0, hbTotal, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -138,8 +148,12 @@ async function syncBundleofholding(
       filters: [],
       logger: () => {},
       onProgress: (done, total, downloaded) => {
-        if (done === 0) bar.setTotal(total);
-        bar.update(done, { downloaded });
+        if (done === 0) {
+          bar.setTotal(total);
+          bar.update(0, { status: barStatus(0, total, 0) });
+        } else {
+          bar.update(done, { status: barStatus(done, total, downloaded) });
+        }
       },
     });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
@@ -158,7 +172,7 @@ export async function cmdSync(
 ): Promise<void> {
   const multiBar = new cliProgress.MultiBar(
     {
-      format: "{name} |{bar}| {value}/{total} ({downloaded} new)",
+      format: "{name} |{bar}| {status}",
       barCompleteChar: "█",
       barIncompleteChar: "░",
       hideCursor: true,
@@ -169,10 +183,10 @@ export async function cmdSync(
   );
 
   const bars = new Map(
-    storefronts.map((sf) => [sf, multiBar.create(1, 0, { name: barName(sf), downloaded: 0 })]),
+    storefronts.map((sf) => [sf, multiBar.create(1, 0, { name: barName(sf), status: "..." })]),
   );
 
-  const resultPairs = await Promise.all(
+  await Promise.all(
     storefronts.map(async (sf) => {
       const bar = bars.get(sf)!;
       let result: SyncResult;
@@ -190,20 +204,14 @@ export async function cmdSync(
           result = await syncBundleofholding(config, outputDir, jobs, deep, bar);
           break;
       }
-      multiBar.remove(bar);
-      return { storefront: sf, result };
+      bar.setTotal(1);
+      bar.update(1, {
+        status: result.ok
+          ? `✓ ${result.downloaded} new, ${result.errors} errors`
+          : `✗ ${result.reason}`,
+      });
     }),
   );
 
   multiBar.stop();
-
-  console.log();
-  for (const { storefront, result } of resultPairs) {
-    const label = storefront.padEnd(20);
-    if (result.ok) {
-      console.log(`✓ ${label} — ${result.downloaded} new, ${result.errors} errors`);
-    } else {
-      console.log(`✗ ${label} — ${result.reason}`);
-    }
-  }
 }
