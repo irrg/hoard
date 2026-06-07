@@ -190,6 +190,7 @@ describe('Library.downloadBundles', () => {
     expect(mockStreamToFile).toHaveBeenCalledWith(
       expect.any(String),
       expect.stringContaining('book.epub'),
+      expect.any(String),
     );
   });
 
@@ -322,7 +323,7 @@ describe('Library.downloadBundles — error handling', () => {
 
     expect(result.errors).toBe(1);
     expect(mockAppendFile).toHaveBeenCalledWith(
-      '/output/errors.txt',
+      '/output/.data/errors.txt',
       expect.stringContaining('network error'),
     );
   });
@@ -345,11 +346,11 @@ describe('Library.downloadBundles — error handling', () => {
     await lib.downloadBundles([makeBundleRef('k', 'My Bundle')]);
 
     expect(mockAppendFile).toHaveBeenCalledWith(
-      '/output/errors.txt',
+      '/output/.data/errors.txt',
       expect.stringContaining('My Bundle'),
     );
     expect(mockAppendFile).toHaveBeenCalledWith(
-      '/output/errors.txt',
+      '/output/.data/errors.txt',
       expect.stringContaining('book.pdf'),
     );
   });

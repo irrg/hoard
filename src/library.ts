@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { dirname, extname, join, relative } from 'path';
 
 import { fetchBundlePage, type DownloadFile } from './bundle.js';
 import { type BundleRef } from './cabinet.js';
@@ -93,14 +93,14 @@ export class Library {
     file: DownloadFile,
   ): Promise<'downloaded' | 'skipped' | 'error'> {
     const outPath = join(dir, file.filename);
-    const sidecarPath = outPath + '.md5';
+    const sidePath = sidecarPath(this.outputDir, outPath);
 
     try {
       if (existsSync(outPath)) {
         this.logger(`File already exists: ${file.filename}`);
         if (file.md5) {
-          if (existsSync(sidecarPath)) {
-            const stored = (await readFile(sidecarPath, 'utf8')).trim();
+          if (existsSync(sidePath)) {
+            const stored = (await readFile(sidePath, 'utf8')).trim();
             if (stored === file.md5) {
               this.logger(`Skipping ${bundleName} - ${file.filename}`);
               return 'skipped';
@@ -108,14 +108,15 @@ export class Library {
           } else {
             const actual = await md5sum(outPath);
             if (actual === file.md5) {
-              await writeFile(sidecarPath, file.md5);
+              await mkdir(dirname(sidePath), { recursive: true });
+              await writeFile(sidePath, file.md5);
               this.logger(`Skipping ${bundleName} - ${file.filename}`);
               return 'skipped';
             }
           }
           this.logger(`Checksum mismatch: ${file.filename}`);
           if (!this.dryRun) {
-            const oldDir = join(dir, 'old');
+            const oldDir = join(this.outputDir, '.data', relative(this.outputDir, dir), 'old');
             await mkdir(oldDir, { recursive: true });
             this.logger(`Moving ${file.filename} to old/`);
             const timestamp = new Date().toISOString().split('T')[0];
@@ -133,12 +134,13 @@ export class Library {
       }
 
       this.logger(`Downloading ${file.filename}`);
-      await streamToFile(file.url, outPath);
+      await streamToFile(file.url, outPath, this.cookie);
       this.logger(`Downloaded ${file.filename}`);
 
       if (file.md5) {
         const actual = await md5sum(outPath);
-        await writeFile(sidecarPath, actual);
+        await mkdir(dirname(sidePath), { recursive: true });
+        await writeFile(sidePath, file.md5);
         if (actual !== file.md5) {
           this.logger(`Failed to verify ${file.filename}`);
         }
@@ -149,10 +151,17 @@ export class Library {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
       await appendFile(
-        join(this.outputDir, 'errors.txt'),
+        join(this.outputDir, '.data', 'errors.txt'),
         `${bundleName} - ${file.filename}: ${msg}\n`,
       );
       return 'error';
     }
   }
+}
+
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = relative(outputDir, filePath);
+  const ext = extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return join(outputDir, '.data', base + '.md5');
 }
