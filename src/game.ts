@@ -133,7 +133,12 @@ export class Game {
 
     if (wrote === 0) return false;
 
-    const manifestPath = this.dir + '.json';
+    const manifestPath = path.join(
+      this.outputDir,
+      '.data',
+      path.relative(this.outputDir, this.dir) + '.json',
+    );
+    await mkdir(path.dirname(manifestPath), { recursive: true });
     await writeFile(
       manifestPath,
       JSON.stringify(
@@ -173,7 +178,7 @@ export class Game {
         return false;
       }
 
-      const md5File = withSuffix(outFile, '.md5');
+      const md5File = sidecarPath(this.outputDir, outFile);
 
       if (existsSync(md5File)) {
         const storedMd5 = (await readFile(md5File, 'utf8')).trim();
@@ -186,12 +191,18 @@ export class Game {
         const computed = await md5sum(outFile);
         if (computed === md5Hash) {
           this.logger(`Skipping ${this.name} - ${filename}`);
+          await mkdir(path.dirname(md5File), { recursive: true });
           await writeFile(md5File, md5Hash);
           return false;
         }
       }
 
-      const oldDir = path.join(this.dir, 'old');
+      const oldDir = path.join(
+        this.outputDir,
+        '.data',
+        path.relative(this.outputDir, this.dir),
+        'old',
+      );
       await mkdir(oldDir, { recursive: true });
 
       this.logger(`Moving ${filename} to old/`);
@@ -265,7 +276,9 @@ export class Game {
       if (computed !== md5Hash) {
         this.logger(`Failed to verify ${filename}`);
       } else {
-        await writeFile(withSuffix(outFile, '.md5'), computed);
+        const md5File = sidecarPath(this.outputDir, outFile);
+        await mkdir(path.dirname(md5File), { recursive: true });
+        await writeFile(md5File, md5Hash);
       }
     }
 
@@ -280,7 +293,7 @@ export class Game {
   ): Promise<void> {
     const safeUrl = requestUrl.replace(/api_key=[^&]+/, 'api_key=REDACTED');
     await appendFile(
-      path.join(this.outputDir, 'errors.txt'),
+      path.join(this.outputDir, '.data', 'errors.txt'),
       [
         ` Cannot download game/asset: ${this.gameSlug}`,
         ` Publisher Name: ${this.publisherSlug}`,
@@ -294,7 +307,9 @@ export class Game {
   }
 }
 
-function withSuffix(filePath: string, newExt: string): string {
-  const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + newExt : filePath + newExt;
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = path.relative(outputDir, filePath);
+  const ext = path.extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return path.join(outputDir, '.data', base + '.md5');
 }

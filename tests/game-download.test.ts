@@ -211,7 +211,7 @@ describe('Game.doDownload', () => {
     vi.mocked(download).mockRejectedValue(new NoDownloadError('no headers'));
     await makeGame().doDownload(makeUpload(), 'secret-key');
     expect(appendFile).toHaveBeenCalledWith(
-      'downloads/errors.txt',
+      'downloads/.data/errors.txt',
       expect.stringContaining('api_key=REDACTED'),
     );
     const logged = vi.mocked(appendFile).mock.calls[0][1] as string;
@@ -223,7 +223,7 @@ describe('Game.doDownload', () => {
     vi.mocked(download).mockRejectedValue(new Error('network failure'));
     await makeGame().doDownload(makeUpload(), 'tok');
     expect(appendFile).toHaveBeenCalledWith(
-      'downloads/errors.txt',
+      'downloads/.data/errors.txt',
       expect.stringContaining('game.zip'),
     );
   });
