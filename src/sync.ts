@@ -19,7 +19,7 @@ function barName(sf: string): string {
 }
 
 function barStatus(done: number, total: number, downloaded: number): string {
-  return `${downloaded} new, ${done} comparing, ${total} total`;
+  return `${total} total, ${downloaded} new, ${done} comparing`;
 }
 
 async function syncItchio(
