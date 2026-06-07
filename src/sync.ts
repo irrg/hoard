@@ -148,10 +148,12 @@ async function syncBundleofholding(
       cookie,
       filters: [],
       logger: () => {},
-      onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
+      onProgress: (done, total, downloaded) => {
+        if (!bar && total > 0)
+          bar = multiBar.create(total, done, { name: barName("bundleofholding"), downloaded });
+        else bar?.update(done, { downloaded });
+      },
     });
-    if (bundles.length > 0)
-      bar = multiBar.create(bundles.length, 0, { name: barName("bundleofholding"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
     return { ok: true, downloaded, errors };
   } catch (e) {
