@@ -4,11 +4,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Hoist mocks so vi.mock factories can reference them
 // ---------------------------------------------------------------------------
 
-const { fetchWithRetryMock, bundleDownloadMock } = vi.hoisted(() => ({
+const { fetchWithRetryMock, bundleDownloadMock, bundleTotalFilesMock } = vi.hoisted(() => ({
   fetchWithRetryMock: vi.fn(),
   bundleDownloadMock: vi.fn<() => Promise<{ newFiles: number; errors: number }>>(() =>
     Promise.resolve({ newFiles: 1, errors: 0 }),
   ),
+  bundleTotalFilesMock: vi.fn<() => number>(() => 1),
 }));
 
 vi.mock('../src/utils.js', async (importOriginal) => {
@@ -22,8 +23,14 @@ vi.mock('../src/utils.js', async (importOriginal) => {
 vi.mock('../src/bundle.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/bundle.js')>();
   class MockBundle extends original.Bundle {
-    override download() {
-      return bundleDownloadMock();
+    override totalFiles() {
+      return bundleTotalFilesMock();
+    }
+    override async download(onFile?: (result: 'downloaded' | 'skipped' | 'error') => void) {
+      const result = await bundleDownloadMock();
+      for (let i = 0; i < result.newFiles; i++) onFile?.('downloaded');
+      for (let i = 0; i < result.errors; i++) onFile?.('error');
+      return result;
     }
   }
   return { ...original, Bundle: MockBundle };
@@ -246,6 +253,7 @@ describe('Library.downloadLibrary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
+    bundleTotalFilesMock.mockReturnValue(1);
   });
 
   afterEach(() => {
@@ -269,6 +277,7 @@ describe('Library.downloadLibrary', () => {
 
   it('returns downloaded count equal to bundles that reported newFiles', async () => {
     bundleDownloadMock.mockResolvedValue({ newFiles: 3, errors: 0 });
+    bundleTotalFilesMock.mockReturnValue(3);
     const lib = await loadedLibrary(2);
     const result = await lib.downloadLibrary();
     expect(result.downloaded).toBe(6);
@@ -277,6 +286,7 @@ describe('Library.downloadLibrary', () => {
 
   it('accumulates errors from individual bundle downloads', async () => {
     bundleDownloadMock.mockResolvedValue({ newFiles: 0, errors: 2 });
+    bundleTotalFilesMock.mockReturnValue(2);
     const lib = await loadedLibrary(3);
     const result = await lib.downloadLibrary();
     expect(result.errors).toBe(6);
@@ -290,7 +300,7 @@ describe('Library.downloadLibrary', () => {
     expect(result.downloaded).toBe(0);
   });
 
-  it('calls onProgress after each bundle completes', async () => {
+  it('calls onProgress after each file completes', async () => {
     bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
     const onProgress = vi.fn();
     const lib = await loadedLibrary(3, { onProgress });
@@ -300,10 +310,11 @@ describe('Library.downloadLibrary', () => {
 
   it('passes (done, total, downloaded) to onProgress', async () => {
     bundleDownloadMock.mockResolvedValue({ newFiles: 2, errors: 0 });
+    bundleTotalFilesMock.mockReturnValue(2);
     const onProgress = vi.fn();
     const lib = await loadedLibrary(1, { onProgress, jobs: 1 });
     await lib.downloadLibrary();
-    expect(onProgress).toHaveBeenCalledWith(1, 1, 2);
+    expect(onProgress).toHaveBeenCalledWith(2, 2, 2);
   });
 
   it('does not throw when onProgress is undefined', async () => {
@@ -316,14 +327,6 @@ describe('Library.downloadLibrary', () => {
     const lib = new Library(makeOptions());
     const result = await lib.downloadLibrary();
     expect(result).toEqual({ downloaded: 0, errors: 0 });
-  });
-
-  it('logs success messages after each bundle', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
-    const logger = vi.fn();
-    const lib = await loadedLibrary(2, { logger });
-    await lib.downloadLibrary();
-    expect(logger).toHaveBeenCalledWith(expect.stringMatching(/downloaded/i));
   });
 
   it('logs error messages when a bundle throws', async () => {

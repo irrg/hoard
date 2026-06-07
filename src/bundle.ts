@@ -54,7 +54,21 @@ export class Bundle {
     this.options = options;
   }
 
-  async download(): Promise<{ newFiles: number; errors: number }> {
+  totalFiles(): number {
+    return this.subproducts.reduce(
+      (sum, sub) =>
+        sum +
+        sub.downloads.reduce((s, dl) => {
+          const items = Array.isArray(dl.download_struct) ? dl.download_struct : [];
+          return s + items.filter((i) => i.url?.web).length;
+        }, 0),
+      0,
+    );
+  }
+
+  async download(
+    onFile?: (result: 'downloaded' | 'skipped' | 'error') => void,
+  ): Promise<{ newFiles: number; errors: number }> {
     const bundleDir = path.join(this.outputDir, this.title);
     const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
     const subproducts = filters.length
@@ -72,12 +86,9 @@ export class Bundle {
         for (const item of items) {
           if (item.url?.web) {
             const result = await this.doDownload(item, subDir, sub.human_name);
-            if (result === 'downloaded') {
-              newFiles++;
-            } else if (result === 'error') {
-              errors++;
-            }
-            // 'skipped' does not increment either counter
+            onFile?.(result);
+            if (result === 'downloaded') newFiles++;
+            else if (result === 'error') errors++;
           }
         }
       }

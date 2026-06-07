@@ -62,25 +62,29 @@ export class Library {
   }
 
   private async fetchBundles(keys: string[]): Promise<void> {
-    for (const key of keys) {
-      const r = await fetchWithRetry(
-        `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
-        { headers: this.authHeaders },
-        3,
-        this.logger,
-      );
-      if (!r.ok) {
-        this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
-        continue;
-      }
-      let data: BundleData;
-      try {
-        data = (await r.json()) as BundleData;
-      } catch {
-        this.logger(`Failed to parse order ${key}`);
-        continue;
-      }
-      this.bundles.push(new Bundle(key, data, this.bundleOptions));
+    const results = await Promise.all(
+      keys.map(async (key) => {
+        const r = await fetchWithRetry(
+          `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
+          { headers: this.authHeaders },
+          3,
+          this.logger,
+        );
+        if (!r.ok) {
+          this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
+          return null;
+        }
+        try {
+          const data = (await r.json()) as BundleData;
+          return new Bundle(key, data, this.bundleOptions);
+        } catch {
+          this.logger(`Failed to parse order ${key}`);
+          return null;
+        }
+      }),
+    );
+    for (const bundle of results) {
+      if (bundle) this.bundles.push(bundle);
     }
   }
 
@@ -103,23 +107,23 @@ export class Library {
   }
 
   async downloadLibrary(): Promise<{ downloaded: number; errors: number }> {
-    const total = this.bundles.length;
+    const total = this.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
     let done = 0;
     let downloaded = 0;
     let errors = 0;
 
     const tasks = this.bundles.map((b) => async () => {
       try {
-        const result = await b.download();
-        done++;
-        downloaded += result.newFiles;
-        errors += result.errors;
-        this.logger(`Downloaded ${b.name} (${done} of ${total})`);
+        await b.download((result) => {
+          done++;
+          if (result === 'downloaded') downloaded++;
+          else if (result === 'error') errors++;
+          this.onProgress?.(done, total, downloaded);
+        });
       } catch (e) {
-        errors++;
         this.logger(`Error downloading ${b.name}: ${e instanceof Error ? e.message : e}`);
+        errors++;
       }
-      this.onProgress?.(done + errors, total, downloaded);
     });
 
     await runConcurrently(tasks, this.jobs);
