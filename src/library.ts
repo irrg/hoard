@@ -10,6 +10,8 @@ export interface LibraryOptions {
   omitPublisher: boolean;
   dryRun: boolean;
   filters: string[];
+  logger?: (msg: string) => void;
+  onProgress?: (done: number, total: number, downloaded: number) => void;
 }
 
 export class Library {
@@ -19,40 +21,50 @@ export class Library {
   private jobs: number;
   private filters: string[];
   private productOptions: ProductOptions;
+  private logger: (msg: string) => void;
+  private onProgress?: (done: number, total: number, downloaded: number) => void;
 
   constructor(options: LibraryOptions) {
     this.apiKey = options.apiKey;
     this.products = [];
     this.jobs = options.jobs;
     this.filters = options.filters.map((f) => f.toLowerCase());
+    this.logger = options.logger ?? (() => {});
+    this.onProgress = options.onProgress;
     this.productOptions = {
       outputDir: options.outputDir,
       compat: options.compat,
       omitPublisher: options.omitPublisher,
       dryRun: options.dryRun,
+      logger: this.logger,
     };
   }
 
   async authenticate(): Promise<void> {
-    console.log('Authenticating...');
+    this.logger('Authenticating...');
     this.bearerToken = await exchangeKey(this.apiKey);
   }
 
   async loadProducts(): Promise<void> {
-    console.log('Fetching product list...');
+    this.logger('Fetching product list...');
     let page = 1;
     while (true) {
       const r = await fetchWithRetry(
         `${API_BASE}order_products?getChecksum=1&getFilters=0&page=${page}&pageSize=50&library=1&archived=0`,
         { headers: { Authorization: this.bearerToken, Accept: 'application/json' } },
+        3,
+        this.logger,
       );
+
+      if (!r.ok) {
+        throw new Error(`Failed to load products: HTTP ${r.status}`);
+      }
 
       let j: ProductData[];
       try {
         j = (await r.json()) as ProductData[];
       } catch {
-        console.log(`Failed to parse page ${page} (HTTP ${r.status}), stopping`);
-        break;
+        throw new Error(`Failed to parse product list page ${page} (HTTP ${r.status})`);
       }
 
       if (!Array.isArray(j) || j.length === 0) break;
@@ -64,11 +76,12 @@ export class Library {
       page++;
     }
 
-    console.log(`Found ${this.products.length} products`);
+    this.logger(`Found ${this.products.length} products`);
   }
 
-  async downloadLibrary(): Promise<void> {
+  async downloadLibrary(): Promise<{ downloaded: number; errors: number }> {
     let done = 0;
+    let downloaded = 0;
     let errors = 0;
 
     const products = this.filters.length
@@ -77,16 +90,18 @@ export class Library {
     const total = products.length;
     const tasks = products.map((p) => async () => {
       try {
-        await p.download(this.bearerToken);
+        const wrote = await p.download(this.bearerToken);
         done++;
-        console.log(`Downloaded ${p.name} (${done} of ${total})`);
+        if (wrote) downloaded++;
+        this.logger(`Downloaded ${p.name} (${done} of ${total})`);
       } catch (e) {
         errors++;
-        console.log(`Error downloading ${p.name}: ${e instanceof Error ? e.message : e}`);
+        this.logger(`Error downloading ${p.name}: ${e instanceof Error ? e.message : e}`);
       }
+      this.onProgress?.(done + errors, total, downloaded);
     });
 
     await runConcurrently(tasks, this.jobs);
-    console.log(`Downloaded ${done} products, ${errors} errors`);
+    return { downloaded, errors };
   }
 }

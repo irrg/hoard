@@ -25,6 +25,7 @@ export interface ProductOptions {
   compat: boolean;
   omitPublisher: boolean;
   dryRun: boolean;
+  logger: (msg: string) => void;
 }
 
 const SITE_ID = '10';
@@ -53,17 +54,17 @@ export class Product {
       : path.join(options.outputDir, pub, prod);
   }
 
-  async download(bearerToken: string): Promise<void> {
-    if (this.data.files.length === 0) return;
+  async download(bearerToken: string): Promise<boolean> {
+    if (this.data.files.length === 0) return false;
 
-    console.log(`Downloading ${this.name}`);
+    this.options.logger(`Downloading ${this.name}`);
 
     let wrote = 0;
     for (const item of this.data.files) {
       if (await this.doDownload(item, bearerToken)) wrote++;
     }
 
-    if (wrote === 0) return;
+    if (wrote === 0) return false;
 
     await writeFile(
       this.dir + '.json',
@@ -79,6 +80,8 @@ export class Product {
         2,
       ),
     );
+
+    return true;
   }
 
   async doDownload(item: DownloadItemData, bearerToken: string): Promise<boolean> {
@@ -87,35 +90,35 @@ export class Product {
     const apiChecksum = newestChecksum(item);
 
     if (this.options.dryRun) {
-      console.log(`Dry run: ${this.name} - ${filename}`);
+      this.options.logger(`Dry run: ${this.name} - ${filename}`);
       return false;
     }
 
     if (existsSync(outFile)) {
-      console.log(`File already exists: ${filename}`);
+      this.options.logger(`File already exists: ${filename}`);
       const md5File = withSuffix(outFile, '.md5');
 
       if (apiChecksum && existsSync(md5File)) {
         const stored = (await readFile(md5File, 'utf8')).trim();
         if (stored === apiChecksum) {
-          console.log(`Skipping ${this.name} - ${filename}`);
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
           return false;
         }
-        console.log(`Checksum mismatch: ${filename}`);
+        this.options.logger(`Checksum mismatch: ${filename}`);
       } else {
         const remoteTime = new Date(this.data.fileLastModified).getTime();
         const fileStat = await stat(outFile);
         if (remoteTime <= fileStat.mtimeMs) {
-          console.log(`Skipping ${this.name} - ${filename}`);
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
           return false;
         }
-        console.log(`File outdated: ${filename}`);
+        this.options.logger(`File outdated: ${filename}`);
       }
 
       const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
       const timestamp = new Date().toISOString().split('T')[0];
-      console.log(`Moving ${filename} to old/`);
+      this.options.logger(`Moving ${filename} to old/`);
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
 
@@ -126,18 +129,18 @@ export class Product {
       url = await this._prepareDownloadUrl(item, bearerToken);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
+      this.options.logger(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, '', msg);
       return false;
     }
 
     try {
-      console.log(`Downloading ${this.name} - ${filename}`);
+      this.options.logger(`Downloading ${this.name} - ${filename}`);
       await streamToFile(url, outFile);
-      console.log(`Downloaded ${filename}`);
+      this.options.logger(`Downloaded ${filename}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Download failed: ${this.name} - ${filename}: ${msg}`);
+      this.options.logger(`Download failed: ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, url, msg);
       return false;
     }
@@ -147,7 +150,7 @@ export class Product {
       const md5File = withSuffix(outFile, '.md5');
       await writeFile(md5File, computed);
       if (computed !== apiChecksum) {
-        console.log(`Failed to verify ${filename}`);
+        this.options.logger(`Failed to verify ${filename}`);
       }
     }
 
@@ -169,6 +172,8 @@ export class Product {
     let r = await fetchWithRetry(
       `${API_BASE}order_products/${this.data.orderProductId}/prepare?${params}`,
       { headers },
+      3,
+      this.options.logger,
     );
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
 
@@ -179,6 +184,8 @@ export class Product {
       r = await fetchWithRetry(
         `${API_BASE}order_products/${this.data.orderProductId}/check?${params}`,
         { headers },
+        3,
+        this.options.logger,
       );
       if (!r.ok) throw new Error(`Poll failed: HTTP ${r.status}`);
       data = (await r.json()) as { url: string; status: string };

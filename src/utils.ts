@@ -14,6 +14,7 @@ export async function fetchWithRetry(
   url: string,
   options?: RequestInit,
   retries = 3,
+  logger: (msg: string) => void = () => {},
 ): Promise<Response> {
   let delay = 1000;
   for (let attempt = 0; ; attempt++) {
@@ -21,7 +22,7 @@ export async function fetchWithRetry(
     if (r.status !== 429 || attempt >= retries) return r;
     const retryAfter = r.headers.get('retry-after');
     const wait = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
-    console.log(`Rate limited, retrying in ${wait / 1000}s...`);
+    logger(`Rate limited, retrying in ${wait / 1000}s...`);
     await new Promise((res) => setTimeout(res, wait));
     delay *= 2;
   }
