@@ -165,6 +165,9 @@ async function syncBundleofholding(
       cookie,
       filters: [],
       logger: () => {},
+      onLoadPage: (loaded, total, filesFound) => {
+        bar.update(0, { status: `loading ${loaded}/${total}, ${filesFound} files` });
+      },
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         if (done === 0) {
