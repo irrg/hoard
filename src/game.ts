@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
 import path from 'path';
 
@@ -41,6 +41,7 @@ export class Game {
   outputDir: string;
   downloads: Upload[];
   dryRun: boolean;
+  deep: boolean;
   private logger: (msg: string) => void;
 
   constructor(
@@ -49,6 +50,7 @@ export class Game {
     outputDir = 'downloads',
     dryRun = false,
     logger: (msg: string) => void = () => {},
+    deep = false,
   ) {
     this.data = data.game;
     this.name = this.data.title;
@@ -81,6 +83,7 @@ export class Game {
     this.dir = path.join(outputDir, cleanPath(this.publisherSlug), cleanPath(this.gameSlug));
     this.downloads = [];
     this.dryRun = dryRun;
+    this.deep = deep;
     this.logger = logger;
   }
 
@@ -105,6 +108,7 @@ export class Game {
   }
 
   async download(token: string, platform?: string): Promise<boolean> {
+    if (!this.deep && hasFiles(this.dir)) return false;
     this.logger(`Downloading ${this.name}`);
 
     await this.loadDownloads(token);
@@ -304,6 +308,15 @@ export class Game {
         ` ---------------------------------------------------------\n`,
       ].join('\n'),
     );
+  }
+}
+
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
   }
 }
 

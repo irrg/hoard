@@ -33,6 +33,17 @@ export interface BundleKey {
 
 const MAX_JOBS = 8;
 
+export interface LibraryOptions {
+  jobs?: number;
+  humanFolders?: boolean;
+  outputDir?: string;
+  dryRun?: boolean;
+  filters?: string[];
+  logger?: (msg: string) => void;
+  onProgress?: (done: number, total: number, downloaded: number) => void;
+  deep?: boolean;
+}
+
 export class Library {
   token: string;
   games: Game[];
@@ -40,6 +51,7 @@ export class Library {
   humanFolders: boolean;
   outputDir: string;
   dryRun: boolean;
+  deep: boolean;
   filters: string[];
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
@@ -53,6 +65,7 @@ export class Library {
     filters: string[] = [],
     logger: (msg: string) => void = () => {},
     onProgress?: (done: number, total: number, downloaded: number) => void,
+    deep = false,
   ) {
     this.token = token;
     this.games = [];
@@ -60,6 +73,7 @@ export class Library {
     this.humanFolders = humanFolders;
     this.outputDir = outputDir;
     this.dryRun = dryRun;
+    this.deep = deep;
     this.filters = filters.map((f) => f.toLowerCase());
     this.logger = logger;
     this.onProgress = onProgress;
@@ -82,7 +96,16 @@ export class Library {
     if (!Array.isArray(j.owned_keys) || j.owned_keys.length === 0) return 0;
 
     for (const s of j.owned_keys) {
-      this.games.push(new Game(s, this.humanFolders, this.outputDir, this.dryRun, this.logger));
+      this.games.push(
+        new Game(
+          s,
+          this.humanFolders,
+          this.outputDir,
+          this.dryRun,
+          this.logger,
+          this.deep ?? false,
+        ),
+      );
     }
 
     return j.owned_keys.length;
@@ -146,6 +169,7 @@ export class Library {
             this.outputDir,
             this.dryRun,
             this.logger,
+            this.deep ?? false,
           ),
         );
       }
@@ -189,6 +213,7 @@ export class Library {
             this.outputDir,
             this.dryRun,
             this.logger,
+            this.deep ?? false,
           ),
         );
       }
