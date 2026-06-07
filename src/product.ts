@@ -221,7 +221,7 @@ function newestChecksum(item: DownloadItemData): string | null {
   const sorted = [...item.checksums].sort(
     (a, b) => new Date(b.checksumDate).getTime() - new Date(a.checksumDate).getTime(),
   );
-  return sorted[0].checksum ?? null;
+  return sorted[0].checksum?.toLowerCase() ?? null;
 }
 
 function withSuffix(filePath: string, newExt: string): string {
