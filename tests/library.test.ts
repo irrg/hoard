@@ -8,6 +8,7 @@ import { Library, type LibraryOptions } from '../src/library.js';
 
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
+  readdirSync: vi.fn(),
 }));
 
 vi.mock('fs/promises', () => ({
@@ -38,7 +39,7 @@ vi.mock('../src/bundle.js', () => ({
 // Imports after mocks are registered
 // ---------------------------------------------------------------------------
 
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
 
 import { fetchBundlePage } from '../src/bundle.js';
@@ -49,6 +50,7 @@ import { md5sum, streamToFile } from '../src/utils.js';
 // ---------------------------------------------------------------------------
 
 const mockExistsSync = vi.mocked(existsSync);
+const mockReaddirSync = vi.mocked(readdirSync);
 const mockAppendFile = vi.mocked(appendFile);
 const mockMkdir = vi.mocked(mkdir);
 const mockReadFile = vi.mocked(readFile);
@@ -104,6 +106,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: no files exist on disk
   mockExistsSync.mockReturnValue(false);
+  // Default: directory is empty (shallow check sees no files)
+  mockReaddirSync.mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
   // Default: fetchBundlePage returns a single-file bundle
   mockFetchBundlePage.mockResolvedValue(makeBundle());
   // Default: md5sum returns the expected hash
@@ -218,6 +222,43 @@ describe('Library.downloadBundles', () => {
     const lib = makeLibrary();
     const result = await lib.downloadBundles([makeBundleRef('k1'), makeBundleRef('k2')]);
     expect(result.downloaded).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shallow skip (default mode)
+// ---------------------------------------------------------------------------
+
+describe('Library.downloadBundles — shallow skip', () => {
+  it('skips a bundle whose directory already has files (shallow mode)', async () => {
+    const onProgress = vi.fn();
+    // Dir exists and contains a visible file
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue(['book.pdf'] as unknown as ReturnType<typeof readdirSync>);
+
+    const lib = makeLibrary({ onProgress });
+    const result = await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockStreamToFile).not.toHaveBeenCalled();
+    expect(result.downloaded).toBe(0);
+    // Progress is still reported for the skipped bundle
+    expect(onProgress).toHaveBeenCalledWith(1, 1, 0);
+  });
+
+  it('does not skip when deep: true even if directory has files', async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReaddirSync.mockReturnValue(['book.pdf'] as unknown as ReturnType<typeof readdirSync>);
+    // Sidecar md5 matches → per-file skip path
+    mockReadFile.mockResolvedValue('abc123' as unknown as Buffer);
+
+    const lib = makeLibrary({ deep: true });
+    const result = await lib.downloadBundles([makeBundleRef()]);
+
+    // Deep mode enters per-file check; sidecar matches so no download, but no shallow skip
+    expect(mockStreamToFile).not.toHaveBeenCalled();
+    expect(result.downloaded).toBe(0);
+    // fetchBundlePage was called (we didn't short-circuit before it)
+    expect(mockFetchBundlePage).toHaveBeenCalledOnce();
   });
 });
 

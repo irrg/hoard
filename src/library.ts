@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
 import { dirname, extname, join, relative } from 'path';
 
@@ -12,6 +12,7 @@ export interface LibraryOptions {
   dryRun: boolean;
   cookie: string;
   filters: string[];
+  deep?: boolean;
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
 }
@@ -22,6 +23,7 @@ export class Library {
   private dryRun: boolean;
   private cookie: string;
   private filters: string[];
+  private deep: boolean;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
 
@@ -31,6 +33,7 @@ export class Library {
     this.dryRun = opts.dryRun;
     this.cookie = opts.cookie;
     this.filters = opts.filters.map((f) => f.toLowerCase());
+    this.deep = opts.deep ?? false;
     this.logger = opts.logger ?? (() => {});
     this.onProgress = opts.onProgress;
   }
@@ -50,6 +53,12 @@ export class Library {
     for (const ref of bundles) {
       const page = await fetchBundlePage(ref.key, this.cookie);
       const dir = join(this.outputDir, cleanPath(page.title));
+
+      if (!this.deep && hasFiles(dir)) {
+        this.onProgress?.(++processed, total, downloaded);
+        continue;
+      }
+
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
 
       if (files.length === 0) {
@@ -156,6 +165,15 @@ export class Library {
       );
       return 'error';
     }
+  }
+}
+
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
   }
 }
 
