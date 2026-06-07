@@ -179,13 +179,14 @@ export class Bundle {
       return 'error';
     }
 
-    const apiMd5 = item.md5 || null;
+    const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
-      const md5Out = sidecarPath(this.outputDir, outFile);
-      await mkdir(path.dirname(md5Out), { recursive: true });
-      await writeFile(md5Out, apiMd5);
-      if (computed !== apiMd5) {
+      if (computed === apiMd5) {
+        const md5Out = sidecarPath(this.outputDir, outFile);
+        await mkdir(path.dirname(md5Out), { recursive: true });
+        await writeFile(md5Out, apiMd5);
+      } else {
         this.options.logger(`MD5 mismatch after download: ${filename}`);
       }
     }
