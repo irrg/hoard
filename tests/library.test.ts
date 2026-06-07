@@ -142,22 +142,25 @@ describe('Library.downloadBundles', () => {
     expect(mockStreamToFile).toHaveBeenCalledTimes(2);
   });
 
-  it('calls onProgress for each bundle', async () => {
+  it('calls onProgress once per file plus an initial announcement', async () => {
     const onProgress = vi.fn();
     const lib = makeLibrary({ onProgress });
+    // 2 bundles × 1 file each = total 2 files
     await lib.downloadBundles([makeBundleRef('k1'), makeBundleRef('k2')]);
-    expect(onProgress).toHaveBeenCalledTimes(2);
-    expect(onProgress).toHaveBeenNthCalledWith(1, 1, 2, 1);
-    expect(onProgress).toHaveBeenNthCalledWith(2, 2, 2, 2);
+    expect(onProgress).toHaveBeenCalledTimes(3); // announce + 2 files
+    expect(onProgress).toHaveBeenNthCalledWith(1, 0, 2, 0); // announcement
+    expect(onProgress).toHaveBeenNthCalledWith(2, 1, 2, 0); // file 1 done (bundle 1 not yet counted)
+    expect(onProgress).toHaveBeenNthCalledWith(3, 2, 2, 1); // file 2 done (bundle 1 now counted)
   });
 
-  it('calls onProgress even when all files are filtered out', async () => {
+  it('calls onProgress once with total=0 when all files are filtered out', async () => {
     const onProgress = vi.fn();
     const lib = makeLibrary({ filters: ['epub'], onProgress });
     // Bundle only has a .pdf — it will be filtered
     const result = await lib.downloadBundles([makeBundleRef()]);
     expect(result.downloaded).toBe(0);
-    expect(onProgress).toHaveBeenCalledWith(1, 1, 0);
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(0, 0, 0);
   });
 
   it('creates output directory on first download', async () => {
@@ -226,6 +229,75 @@ describe('Library.downloadBundles', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Bundle page cache
+// ---------------------------------------------------------------------------
+
+describe('Library — bundle page cache', () => {
+  it('uses cached page and skips fetchBundlePage when cache exists', async () => {
+    const cachedPage = makeBundle('k', 'Cached Bundle', [makeFile()]);
+    mockExistsSync.mockImplementation((p) => String(p).includes('.data/bundles'));
+    mockReadFile.mockImplementation((p) =>
+      String(p).includes('.data/bundles')
+        ? Promise.resolve(JSON.stringify(cachedPage) as unknown as Buffer)
+        : Promise.resolve('abc123' as unknown as Buffer),
+    );
+
+    const lib = makeLibrary();
+    await lib.downloadBundles([makeBundleRef('k')]);
+
+    expect(mockFetchBundlePage).not.toHaveBeenCalled();
+    expect(mockStreamToFile).toHaveBeenCalledOnce();
+  });
+
+  it('fetches from network and writes cache when no cached file exists', async () => {
+    mockExistsSync.mockReturnValue(false);
+
+    const lib = makeLibrary();
+    await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockFetchBundlePage).toHaveBeenCalledOnce();
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringContaining('.data/bundles'),
+      expect.any(String),
+    );
+  });
+
+  it('bypasses cache and refetches when deep: true', async () => {
+    mockExistsSync.mockImplementation((p) => String(p).includes('.data/bundles'));
+
+    const lib = makeLibrary({ deep: true });
+    await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockFetchBundlePage).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to network fetch when cached file contains invalid JSON', async () => {
+    mockExistsSync.mockImplementation((p) => String(p).includes('.data/bundles'));
+    mockReadFile.mockImplementation((p) =>
+      String(p).includes('.data/bundles')
+        ? Promise.resolve('not-json' as unknown as Buffer)
+        : Promise.resolve('abc123' as unknown as Buffer),
+    );
+
+    const lib = makeLibrary();
+    await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockFetchBundlePage).toHaveBeenCalledOnce();
+  });
+
+  it('does not write cache in dry-run mode', async () => {
+    mockExistsSync.mockReturnValue(false);
+
+    const lib = makeLibrary({ dryRun: true });
+    await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockFetchBundlePage).toHaveBeenCalledOnce();
+    const cacheWrite = mockWriteFile.mock.calls.find(([p]) => String(p).includes('.data/bundles'));
+    expect(cacheWrite).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Shallow skip (default mode)
 // ---------------------------------------------------------------------------
 
@@ -241,8 +313,9 @@ describe('Library.downloadBundles — shallow skip', () => {
 
     expect(mockStreamToFile).not.toHaveBeenCalled();
     expect(result.downloaded).toBe(0);
-    // Progress is still reported for the skipped bundle
-    expect(onProgress).toHaveBeenCalledWith(1, 1, 0);
+    // Only the announcement call with total=0 (nothing to download)
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress).toHaveBeenCalledWith(0, 0, 0);
   });
 
   it('does not skip when deep: true even if directory has files', async () => {

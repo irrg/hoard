@@ -44,41 +44,56 @@ export class Library {
     return this.filters.some((f) => lower.includes(f));
   }
 
+  private async _loadBundlePage(key: string): Promise<import('./bundle.js').BundlePage> {
+    const cachePath = join(this.outputDir, '.data', 'bundles', `${key}.json`);
+    if (!this.deep && existsSync(cachePath)) {
+      try {
+        return JSON.parse(await readFile(cachePath, 'utf-8')) as import('./bundle.js').BundlePage;
+      } catch {}
+    }
+    const page = await fetchBundlePage(key, this.cookie);
+    if (!this.dryRun) {
+      try {
+        await mkdir(dirname(cachePath), { recursive: true });
+        await writeFile(cachePath, JSON.stringify(page, null, 2));
+      } catch {}
+    }
+    return page;
+  }
+
   async downloadBundles(bundles: BundleRef[]): Promise<{ downloaded: number; errors: number }> {
-    const total = bundles.length;
-    let downloaded = 0;
-    let errors = 0;
-    let processed = 0;
+    type BundleWork = { title: string; dir: string; files: DownloadFile[] };
+    const work: BundleWork[] = [];
 
     for (const ref of bundles) {
-      const page = await fetchBundlePage(ref.key, this.cookie);
+      const page = await this._loadBundlePage(ref.key);
       const dir = join(this.outputDir, cleanPath(page.title));
-
-      if (!this.deep && hasFiles(dir)) {
-        this.onProgress?.(++processed, total, downloaded);
-        continue;
-      }
-
+      if (!this.deep && hasFiles(dir)) continue;
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
+      if (files.length > 0) work.push({ title: page.title, dir, files });
+    }
 
-      if (files.length === 0) {
-        this.onProgress?.(++processed, total, downloaded);
-        continue;
-      }
+    const total = work.reduce((s, w) => s + w.files.length, 0);
+    let filesDone = 0;
+    let downloaded = 0;
+    let errors = 0;
 
-      this.logger(`Downloading ${page.title}`);
+    this.onProgress?.(0, total, 0);
+
+    for (const { title, dir, files } of work) {
+      this.logger(`Downloading ${title}`);
       if (!this.dryRun) await mkdir(dir, { recursive: true });
 
       let bundleHadNewFiles = false;
       const tasks = files.map((f) => async () => {
-        const result = await this.downloadFile(page.title, dir, f);
+        const result = await this.downloadFile(title, dir, f);
         if (result === 'downloaded') bundleHadNewFiles = true;
         if (result === 'error') errors++;
+        this.onProgress?.(++filesDone, total, downloaded);
       });
 
       await runConcurrently(tasks, this.jobs);
       if (bundleHadNewFiles) downloaded++;
-      this.onProgress?.(++processed, total, downloaded);
     }
 
     return { downloaded, errors };
@@ -86,7 +101,7 @@ export class Library {
 
   async listBundles(bundles: BundleRef[]): Promise<void> {
     for (const ref of bundles) {
-      const page = await fetchBundlePage(ref.key, this.cookie);
+      const page = await this._loadBundlePage(ref.key);
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
       if (files.length === 0) continue;
       this.logger(`\n${page.title} [${ref.key}]`);
