@@ -153,7 +153,7 @@ async function syncBundleofholding(
       );
     }
     const bundles = await fetchCabinet(cookie);
-    let lastTotal = 0;
+    let lastTotal = bundles.length;
     const lib = new BoHLibrary({
       outputDir: join(outputDir, "bundleofholding"),
       jobs,
@@ -163,7 +163,7 @@ async function syncBundleofholding(
       filters: [],
       logger: () => {},
       onProgress: (done, total, downloaded) => {
-        lastTotal = total;
+        if (total > 0) lastTotal = total;
         if (done === 0) {
           bar.setTotal(total);
           bar.update(0, { status: barStatus(0, total, 0) });
