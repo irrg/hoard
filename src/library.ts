@@ -1,3 +1,5 @@
+import { existsSync, readdirSync } from 'fs';
+
 import { Bundle, BundleData, BundleOptions } from './bundle.js';
 import { fetchWithRetry, runConcurrently } from './utils.js';
 
@@ -34,7 +36,6 @@ export class Library {
     this.bundleOptions = {
       cookie: options.cookie,
       outputDir: options.outputDir,
-      jobs: options.jobs,
       platform: options.platform,
       extInclude: options.extInclude,
       extExclude: options.extExclude,
@@ -115,21 +116,38 @@ export class Library {
     let downloaded = 0;
     let errors = 0;
 
-    const tasks = this.bundles.map((b) => async () => {
-      try {
-        await b.download((result) => {
+    const tasks = this.bundles.flatMap((b) => {
+      const work = b.workItems();
+      if (!this.bundleOptions.deep && hasFiles(b.dir)) {
+        return work.map(() => async () => {
           done++;
-          if (result === 'downloaded') downloaded++;
-          else if (result === 'error') errors++;
           this.onProgress?.(done, total, downloaded);
         });
-      } catch (e) {
-        this.logger(`Error downloading ${b.name}: ${e instanceof Error ? e.message : e}`);
-        errors++;
       }
+      return work.map(({ item, subDir, productName }) => async () => {
+        try {
+          const result = await b.doDownload(item, subDir, productName);
+          if (result === 'downloaded') downloaded++;
+          else if (result === 'error') errors++;
+        } catch (e) {
+          this.logger(`Error: ${b.name} - ${productName}: ${e instanceof Error ? e.message : e}`);
+          errors++;
+        }
+        done++;
+        this.onProgress?.(done, total, downloaded);
+      });
     });
 
-    await runConcurrently(tasks, 1);
+    await runConcurrently(tasks, this.jobs);
     return { downloaded, errors };
+  }
+}
+
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
   }
 }

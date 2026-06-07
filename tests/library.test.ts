@@ -4,13 +4,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Hoist mocks so vi.mock factories can reference them
 // ---------------------------------------------------------------------------
 
-const { fetchWithRetryMock, bundleDownloadMock, bundleTotalFilesMock } = vi.hoisted(() => ({
-  fetchWithRetryMock: vi.fn(),
-  bundleDownloadMock: vi.fn<() => Promise<{ newFiles: number; errors: number }>>(() =>
-    Promise.resolve({ newFiles: 1, errors: 0 }),
-  ),
-  bundleTotalFilesMock: vi.fn<() => number>(() => 1),
-}));
+const fakeItem = { url: { web: 'http://x/file.pdf' } };
+const fakeWorkItem = { item: fakeItem, subDir: '/tmp', productName: 'p' };
+
+const { fetchWithRetryMock, bundleDoDownloadMock, bundleWorkItemsMock, bundleTotalFilesMock } =
+  vi.hoisted(() => ({
+    fetchWithRetryMock: vi.fn(),
+    bundleDoDownloadMock: vi.fn<() => Promise<'downloaded' | 'skipped' | 'error'>>(() =>
+      Promise.resolve('downloaded'),
+    ),
+    bundleWorkItemsMock: vi.fn(() => [fakeWorkItem]),
+    bundleTotalFilesMock: vi.fn<() => number>(() => 1),
+  }));
 
 vi.mock('../src/utils.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/utils.js')>();
@@ -26,11 +31,11 @@ vi.mock('../src/bundle.js', async (importOriginal) => {
     override totalFiles() {
       return bundleTotalFilesMock();
     }
-    override async download(onFile?: (result: 'downloaded' | 'skipped' | 'error') => void) {
-      const result = await bundleDownloadMock();
-      for (let i = 0; i < result.newFiles; i++) onFile?.('downloaded');
-      for (let i = 0; i < result.errors; i++) onFile?.('error');
-      return result;
+    override workItems() {
+      return bundleWorkItemsMock() as ReturnType<typeof super.workItems>;
+    }
+    override async doDownload() {
+      return bundleDoDownloadMock();
     }
   }
   return { ...original, Bundle: MockBundle };
@@ -252,7 +257,8 @@ describe('Library.loadOrder', () => {
 describe('Library.downloadLibrary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
+    bundleDoDownloadMock.mockResolvedValue('downloaded');
+    bundleWorkItemsMock.mockReturnValue([fakeWorkItem]);
     bundleTotalFilesMock.mockReturnValue(1);
   });
 
@@ -275,25 +281,27 @@ describe('Library.downloadLibrary', () => {
     return lib;
   }
 
-  it('returns downloaded count equal to bundles that reported newFiles', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 3, errors: 0 });
+  it('returns downloaded count equal to total files downloaded', async () => {
+    bundleWorkItemsMock.mockReturnValue([fakeWorkItem, fakeWorkItem, fakeWorkItem]);
     bundleTotalFilesMock.mockReturnValue(3);
+    bundleDoDownloadMock.mockResolvedValue('downloaded');
     const lib = await loadedLibrary(2);
     const result = await lib.downloadLibrary();
     expect(result.downloaded).toBe(6);
     expect(result.errors).toBe(0);
   });
 
-  it('accumulates errors from individual bundle downloads', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 0, errors: 2 });
+  it('accumulates errors from individual file downloads', async () => {
+    bundleWorkItemsMock.mockReturnValue([fakeWorkItem, fakeWorkItem]);
     bundleTotalFilesMock.mockReturnValue(2);
+    bundleDoDownloadMock.mockResolvedValue('error');
     const lib = await loadedLibrary(3);
     const result = await lib.downloadLibrary();
     expect(result.errors).toBe(6);
   });
 
   it('counts a thrown error as one error and does not rethrow', async () => {
-    bundleDownloadMock.mockRejectedValue(new Error('download crashed'));
+    bundleDoDownloadMock.mockRejectedValue(new Error('download crashed'));
     const lib = await loadedLibrary(1);
     const result = await lib.downloadLibrary();
     expect(result.errors).toBe(1);
@@ -301,7 +309,6 @@ describe('Library.downloadLibrary', () => {
   });
 
   it('calls onProgress after each file completes', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
     const onProgress = vi.fn();
     const lib = await loadedLibrary(3, { onProgress });
     await lib.downloadLibrary();
@@ -309,7 +316,7 @@ describe('Library.downloadLibrary', () => {
   });
 
   it('passes (done, total, downloaded) to onProgress', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 2, errors: 0 });
+    bundleWorkItemsMock.mockReturnValue([fakeWorkItem, fakeWorkItem]);
     bundleTotalFilesMock.mockReturnValue(2);
     const onProgress = vi.fn();
     const lib = await loadedLibrary(1, { onProgress, jobs: 1 });
@@ -318,7 +325,6 @@ describe('Library.downloadLibrary', () => {
   });
 
   it('does not throw when onProgress is undefined', async () => {
-    bundleDownloadMock.mockResolvedValue({ newFiles: 1, errors: 0 });
     const lib = await loadedLibrary(1);
     await expect(lib.downloadLibrary()).resolves.toBeDefined();
   });
@@ -329,8 +335,8 @@ describe('Library.downloadLibrary', () => {
     expect(result).toEqual({ downloaded: 0, errors: 0 });
   });
 
-  it('logs error messages when a bundle throws', async () => {
-    bundleDownloadMock.mockRejectedValue(new Error('crash'));
+  it('logs error messages when a file download throws', async () => {
+    bundleDoDownloadMock.mockRejectedValue(new Error('crash'));
     const logger = vi.fn();
     const lib = await loadedLibrary(1, { logger });
     await lib.downloadLibrary();
@@ -338,9 +344,21 @@ describe('Library.downloadLibrary', () => {
   });
 
   it('mixes downloaded and error counts across multiple bundles', async () => {
-    bundleDownloadMock
-      .mockResolvedValueOnce({ newFiles: 5, errors: 1 })
-      .mockResolvedValueOnce({ newFiles: 3, errors: 0 })
+    bundleWorkItemsMock
+      .mockReturnValueOnce(Array(6).fill(fakeWorkItem))
+      .mockReturnValueOnce(Array(3).fill(fakeWorkItem))
+      .mockReturnValueOnce([fakeWorkItem]);
+    bundleTotalFilesMock.mockReturnValueOnce(6).mockReturnValueOnce(3).mockReturnValueOnce(1);
+    bundleDoDownloadMock
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('error')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
+      .mockResolvedValueOnce('downloaded')
       .mockRejectedValueOnce(new Error('crash'));
 
     const lib = await loadedLibrary(3, { jobs: 1 });

@@ -29,7 +29,6 @@ export interface BundleData {
 export interface BundleOptions {
   cookie: string;
   outputDir: string;
-  jobs?: number;
   platform?: string;
   extInclude: string[];
   extExclude: string[];
@@ -39,13 +38,19 @@ export interface BundleOptions {
   deep?: boolean;
 }
 
+export interface BundleWorkItem {
+  item: DownloadStructItem;
+  subDir: string;
+  productName: string;
+}
+
 export class Bundle {
   key: string;
   name: string;
   title: string;
   subproducts: SubProduct[];
   private outputDir: string;
-  private options: BundleOptions;
+  options: BundleOptions;
 
   constructor(key: string, data: BundleData, options: BundleOptions) {
     this.key = key;
@@ -54,6 +59,32 @@ export class Bundle {
     this.subproducts = Array.isArray(data.subproducts) ? data.subproducts : [];
     this.outputDir = options.outputDir;
     this.options = options;
+  }
+
+  get dir(): string {
+    return path.join(this.outputDir, this.title);
+  }
+
+  workItems(): BundleWorkItem[] {
+    const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
+    const subproducts = filters.length
+      ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
+      : this.subproducts;
+    const work: BundleWorkItem[] = [];
+    for (const sub of subproducts) {
+      const subDir = path.join(this.dir, cleanPath(sub.human_name));
+      for (const dl of sub.downloads) {
+        if (
+          this.options.platform &&
+          dl.platform.toLowerCase() !== this.options.platform.toLowerCase()
+        )
+          continue;
+        for (const item of Array.isArray(dl.download_struct) ? dl.download_struct : []) {
+          if (item.url?.web) work.push({ item, subDir, productName: sub.human_name });
+        }
+      }
+    }
+    return work;
   }
 
   totalFiles(): number {
@@ -70,34 +101,13 @@ export class Bundle {
 
   async download(
     onFile?: (result: 'downloaded' | 'skipped' | 'error') => void,
+    jobs = 1,
   ): Promise<{ newFiles: number; errors: number }> {
-    const bundleDir = path.join(this.outputDir, this.title);
-    const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
-    const subproducts = filters.length
-      ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
-      : this.subproducts;
-
-    type WorkItem = { item: DownloadStructItem; subDir: string; productName: string };
-    const work: WorkItem[] = [];
-    for (const sub of subproducts) {
-      const subDir = path.join(bundleDir, cleanPath(sub.human_name));
-      for (const dl of sub.downloads) {
-        if (
-          this.options.platform &&
-          dl.platform.toLowerCase() !== this.options.platform.toLowerCase()
-        )
-          continue;
-        for (const item of Array.isArray(dl.download_struct) ? dl.download_struct : []) {
-          if (item.url?.web) work.push({ item, subDir, productName: sub.human_name });
-        }
-      }
-    }
-
-    if (!this.options.deep && hasFiles(bundleDir)) {
+    const work = this.workItems();
+    if (!this.options.deep && hasFiles(this.dir)) {
       for (const _ of work) onFile?.('skipped');
       return { newFiles: 0, errors: 0 };
     }
-
     let newFiles = 0;
     let errors = 0;
     const tasks = work.map(({ item, subDir, productName }) => async () => {
@@ -106,11 +116,11 @@ export class Bundle {
       if (result === 'downloaded') newFiles++;
       else if (result === 'error') errors++;
     });
-    await runConcurrently(tasks, this.options.jobs ?? 1);
+    await runConcurrently(tasks, jobs);
     return { newFiles, errors };
   }
 
-  private async doDownload(
+  async doDownload(
     item: DownloadStructItem,
     dir: string,
     productName: string,
