@@ -15,6 +15,7 @@ export interface LibraryOptions {
   deep?: boolean;
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
+  onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
 }
 
 export class Library {
@@ -26,6 +27,7 @@ export class Library {
   private deep: boolean;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
+  private onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
 
   constructor(opts: LibraryOptions) {
     this.outputDir = opts.outputDir;
@@ -36,6 +38,7 @@ export class Library {
     this.deep = opts.deep ?? false;
     this.logger = opts.logger ?? (() => {});
     this.onProgress = opts.onProgress;
+    this.onLoadPage = opts.onLoadPage;
   }
 
   private matchesFilter(filename: string): boolean {
@@ -65,6 +68,7 @@ export class Library {
     type BundleEntry = { title: string; dir: string; files: DownloadFile[]; skip: boolean };
     const entries: BundleEntry[] = [];
 
+    let pagesLoaded = 0;
     await Promise.all(
       bundles.map(async (ref) => {
         const page = await this._loadBundlePage(ref.key);
@@ -72,6 +76,9 @@ export class Library {
         const skip = !this.deep && hasFiles(dir);
         const files = page.files.filter((f) => this.matchesFilter(f.filename));
         if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
+        pagesLoaded++;
+        const filesFound = entries.reduce((s, e) => s + e.files.length, 0);
+        this.onLoadPage?.(pagesLoaded, bundles.length, filesFound);
       }),
     );
 
