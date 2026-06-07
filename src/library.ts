@@ -65,13 +65,15 @@ export class Library {
     type BundleEntry = { title: string; dir: string; files: DownloadFile[]; skip: boolean };
     const entries: BundleEntry[] = [];
 
-    for (const ref of bundles) {
-      const page = await this._loadBundlePage(ref.key);
-      const dir = join(this.outputDir, cleanPath(page.title));
-      const skip = !this.deep && hasFiles(dir);
-      const files = page.files.filter((f) => this.matchesFilter(f.filename));
-      if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
-    }
+    await Promise.all(
+      bundles.map(async (ref) => {
+        const page = await this._loadBundlePage(ref.key);
+        const dir = join(this.outputDir, cleanPath(page.title));
+        const skip = !this.deep && hasFiles(dir);
+        const files = page.files.filter((f) => this.matchesFilter(f.filename));
+        if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
+      }),
+    );
 
     const total = entries.reduce((s, e) => s + e.files.length, 0);
     let filesDone = 0;
