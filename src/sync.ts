@@ -20,6 +20,7 @@ async function syncItchio(
   config: HoardConfig,
   outputDir: string,
   jobs: number,
+  deep: boolean,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
@@ -37,6 +38,7 @@ async function syncItchio(
       [],
       () => {},
       (done, _total, downloaded) => bar?.update(done, { downloaded }),
+      deep,
     );
     await lib.loadOwnedGames();
     if (lib.games.length > 0)
@@ -52,6 +54,7 @@ async function syncDrivethru(
   config: HoardConfig,
   outputDir: string,
   jobs: number,
+  deep: boolean,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: "not configured" };
@@ -64,6 +67,7 @@ async function syncDrivethru(
       compat: false,
       omitPublisher: false,
       dryRun: false,
+      deep,
       filters: [],
       logger: () => {},
       onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
@@ -83,6 +87,7 @@ async function syncHumblebundle(
   config: HoardConfig,
   outputDir: string,
   jobs: number,
+  deep: boolean,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: "not configured" };
@@ -95,13 +100,15 @@ async function syncHumblebundle(
       extInclude: [],
       extExclude: [],
       dryRun: false,
+      deep,
       filters: [],
       logger: () => {},
       onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
     });
     await lib.loadOrders();
-    if (lib.bundles.length > 0)
-      bar = multiBar.create(lib.bundles.length, 0, {
+    const hbTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
+    if (hbTotal > 0)
+      bar = multiBar.create(hbTotal, 0, {
         name: barName("humblebundle"),
         downloaded: 0,
       });
@@ -116,6 +123,7 @@ async function syncBundleofholding(
   config: HoardConfig,
   outputDir: string,
   jobs: number,
+  deep: boolean,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
@@ -136,6 +144,7 @@ async function syncBundleofholding(
       outputDir: join(outputDir, "bundleofholding"),
       jobs,
       dryRun: false,
+      deep,
       cookie,
       filters: [],
       logger: () => {},
@@ -155,6 +164,7 @@ export async function cmdSync(
   config: HoardConfig,
   outputDir: string,
   jobs: number,
+  deep = false,
 ): Promise<void> {
   const multiBar = new cliProgress.MultiBar(
     {
@@ -173,16 +183,16 @@ export async function cmdSync(
       let result: SyncResult;
       switch (sf) {
         case "itchio":
-          result = await syncItchio(config, outputDir, jobs, multiBar);
+          result = await syncItchio(config, outputDir, jobs, deep, multiBar);
           break;
         case "drivethru":
-          result = await syncDrivethru(config, outputDir, jobs, multiBar);
+          result = await syncDrivethru(config, outputDir, jobs, deep, multiBar);
           break;
         case "humblebundle":
-          result = await syncHumblebundle(config, outputDir, jobs, multiBar);
+          result = await syncHumblebundle(config, outputDir, jobs, deep, multiBar);
           break;
         case "bundleofholding":
-          result = await syncBundleofholding(config, outputDir, jobs, multiBar);
+          result = await syncBundleofholding(config, outputDir, jobs, deep, multiBar);
           break;
       }
       return { storefront: sf, result };

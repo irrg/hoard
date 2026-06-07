@@ -13,6 +13,7 @@ const { values: args, positionals } = parseArgs({
   options: {
     jobs: { type: "string", short: "j" },
     output: { type: "string", short: "o" },
+    deep: { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
   allowPositionals: true,
@@ -32,6 +33,7 @@ Storefronts: ${STOREFRONTS.join(", ")}
 Options:
   -j, --jobs <n>      Concurrent downloads (overrides config)
   -o, --output <dir>  Output directory (overrides config)
+      --deep          Per-file md5 verification (default: skip if folder exists)
   -h, --help          Show this help`;
 
 if (args.help && positionals.length === 0) {
@@ -88,6 +90,7 @@ switch (command) {
       config,
       outputDir,
       jobs,
+      args.deep ?? false,
     );
     break;
   }
