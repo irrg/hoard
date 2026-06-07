@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import { fetchWithRetry, cleanPath, runConcurrently } from '../src/utils.js';
 
 // ---------------------------------------------------------------------------
@@ -9,7 +10,12 @@ function mockResponse(body: unknown, status = 200) {
   return { status, ok: status < 400, json: async () => body, headers: new Headers() };
 }
 
-function mockResponseWithHeader(body: unknown, status: number, headerName: string, headerValue: string) {
+function mockResponseWithHeader(
+  body: unknown,
+  status: number,
+  headerName: string,
+  headerValue: string,
+) {
   const headers = new Headers({ [headerName]: headerValue });
   return { status, ok: status < 400, json: async () => body, headers };
 }
@@ -41,7 +47,9 @@ describe('fetchWithRetry', () => {
 
   it('passes URL and options to fetch', async () => {
     fetchMock.mockResolvedValue(mockResponse({}, 200));
-    await fetchWithRetry('https://example.com/test', { headers: { Authorization: 'Bearer token' } });
+    await fetchWithRetry('https://example.com/test', {
+      headers: { Authorization: 'Bearer token' },
+    });
     expect(fetchMock).toHaveBeenCalledWith('https://example.com/test', {
       headers: { Authorization: 'Bearer token' },
     });
@@ -106,9 +114,7 @@ describe('fetchWithRetry', () => {
   });
 
   it('logs rate-limit message when retrying', async () => {
-    fetchMock
-      .mockResolvedValueOnce(mockResponse({}, 429))
-      .mockResolvedValue(mockResponse({}, 200));
+    fetchMock.mockResolvedValueOnce(mockResponse({}, 429)).mockResolvedValue(mockResponse({}, 200));
 
     const logger = vi.fn();
     const promise = fetchWithRetry('https://example.com/api', undefined, 3, logger);

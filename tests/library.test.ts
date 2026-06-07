@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { fetchWithRetryMock, bundleDownloadMock } = vi.hoisted(() => ({
   fetchWithRetryMock: vi.fn(),
-  bundleDownloadMock: vi.fn<() => Promise<{ newFiles: number; errors: number }>>(
-    () => Promise.resolve({ newFiles: 1, errors: 0 }),
+  bundleDownloadMock: vi.fn<() => Promise<{ newFiles: number; errors: number }>>(() =>
+    Promise.resolve({ newFiles: 1, errors: 0 }),
   ),
 }));
 

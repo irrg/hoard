@@ -100,7 +100,10 @@ describe('Bundle constructor', () => {
   });
 
   it('falls back to key when product.human_name is null/undefined', () => {
-    const data = { product: { human_name: null as unknown as string }, subproducts: [] } as BundleData;
+    const data = {
+      product: { human_name: null as unknown as string },
+      subproducts: [],
+    } as BundleData;
     const b = new Bundle('fallback-key', data, makeOptions());
     expect(b.name).toBe('fallback-key');
   });
@@ -162,10 +165,7 @@ describe('Bundle.download', () => {
   it('writes an md5 file after successful download', async () => {
     const b = new Bundle('k', makeData(), makeOptions());
     await b.download();
-    expect(writeFileMock).toHaveBeenCalledWith(
-      expect.stringContaining('mybook.md5'),
-      'aabbccdd',
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('mybook.md5'), 'aabbccdd');
   });
 
   // -------------------------------------------------------------------------
@@ -374,9 +374,7 @@ describe('Bundle.download', () => {
       subproducts: [
         {
           human_name: 'Bad Product',
-          downloads: [
-            { platform: 'ebook', download_struct: [{ url: { web: '' } }] },
-          ],
+          downloads: [{ platform: 'ebook', download_struct: [{ url: { web: '' } }] }],
         },
       ],
     });
@@ -394,9 +392,7 @@ describe('Bundle.download', () => {
           downloads: [
             {
               platform: 'ebook',
-              download_struct: [
-                { url: { web: 'https://dl.example.com/a.pdf' }, md5: 'aabbccdd' },
-              ],
+              download_struct: [{ url: { web: 'https://dl.example.com/a.pdf' }, md5: 'aabbccdd' }],
             },
           ],
         },
@@ -405,9 +401,7 @@ describe('Bundle.download', () => {
           downloads: [
             {
               platform: 'ebook',
-              download_struct: [
-                { url: { web: 'https://dl.example.com/b.pdf' }, md5: 'aabbccdd' },
-              ],
+              download_struct: [{ url: { web: 'https://dl.example.com/b.pdf' }, md5: 'aabbccdd' }],
             },
           ],
         },
