@@ -223,7 +223,11 @@ export async function cmdSync(
       bar.setTotal(1);
       bar.update(1, {
         status: result.ok
-          ? [`✓ ${result.downloaded} new`, result.errors > 0 ? `${result.errors} errors` : ""]
+          ? [
+              `✓ ${result.total} total`,
+              `${result.downloaded} new`,
+              result.errors > 0 ? `${result.errors} errors` : "",
+            ]
               .filter(Boolean)
               .join(", ")
           : `✗ ${result.reason}`,
