@@ -106,12 +106,15 @@ export class Library {
       ),
     ];
 
+    const stableKey = (p: ProductData) => `${p.productId}:${p.fileLastModified}`;
+
     for (const sp of sentinelPages) {
       const fresh = await this._fetchPage(sp);
       const cached = JSON.parse(
         await readFile(join(pagesDir, `${sp}.json`), 'utf-8'),
       ) as ProductData[];
-      if (JSON.stringify(fresh) !== JSON.stringify(cached)) return false;
+      if (fresh === null || fresh.length !== cached.length) return false;
+      if (fresh.map(stableKey).join('|') !== cached.map(stableKey).join('|')) return false;
     }
 
     this.logger('Product list unchanged, loading from cache');
