@@ -163,9 +163,10 @@ export class Library {
 
       if (file.md5) {
         const actual = await md5sum(outPath);
-        await mkdir(dirname(sidePath), { recursive: true });
-        await writeFile(sidePath, file.md5);
-        if (actual !== file.md5) {
+        if (actual === file.md5) {
+          await mkdir(dirname(sidePath), { recursive: true });
+          await writeFile(sidePath, file.md5);
+        } else {
           this.logger(`Failed to verify ${file.filename}`);
         }
       }
