@@ -37,7 +37,7 @@ export async function fetchBundlePage(key: string, cookie?: string): Promise<Bun
   const files: DownloadFile[] = anchors.map((a) => ({
     filename: a.getAttribute('download') ?? a.text.trim(),
     url: BASE_URL + (a.getAttribute('href') ?? ''),
-    md5: a.getAttribute('data-hash-md5') ?? '',
+    md5: (a.getAttribute('data-hash-md5') ?? '').toLowerCase(),
   }));
 
   return { title, files };
