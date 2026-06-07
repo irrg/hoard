@@ -11,23 +11,55 @@ function mockResponse(body: unknown, status = 200) {
   };
 }
 
+// Realistic BoH structure: zip link with sub-UL of individual files
 const BUNDLE_HTML = `
 <!DOCTYPE html>
 <html>
 <body>
-  <section id="bundle">
-    <h2 class="title">The Fantasy Bundle</h2>
-    <div class="dl-link">
-      <span class="download">
-        <a href="/dl/abc/file1.pdf" download="file1.pdf" data-hash-md5="aabbcc112233">Download 1</a>
-      </span>
-    </div>
-    <div class="dl-link">
-      <span class="download">
-        <a href="/dl/abc/file2.epub" download="file2.epub" data-hash-md5="ddeeff445566">Download 2</a>
-      </span>
-    </div>
+  <section id="bundle"><h2 class="title">The Fantasy Bundle</h2></section>
+  <section class="description">
+    <h4>Starter Collection</h4>
+    <ul>
+      <li>
+        <a download="StarterCollection.zip" href="/download/zipfile/key/abc/type/basic"
+           data-hash-md5="zzzzzzzzzzzzz">Entire Starter Collection in one .ZIP archive</a>
+        which contains these files:
+        <ul>
+          <li><a download="file1.pdf" href="/download/file/key/abc/file_id/1"
+                 data-hash-md5="aabbcc112233">file1.pdf</a></li>
+          <li><a download="file2.epub" href="/download/file/key/abc/file_id/2"
+                 data-hash-md5="ddeeff445566">file2.epub</a></li>
+        </ul>
+      </li>
+    </ul>
   </section>
+</body>
+</html>
+`;
+
+// Page that also has product cards at the bottom — files should be deduplicated
+const BUNDLE_HTML_WITH_CARDS = `
+<!DOCTYPE html>
+<html>
+<body>
+  <section id="bundle"><h2 class="title">Dedup Bundle</h2></section>
+  <section class="description">
+    <ul>
+      <li>
+        <a href="/download/zipfile/key/abc/type/basic">Entire Collection</a>
+        <ul>
+          <li><a download="file1.pdf" href="/download/file/key/abc/file_id/1"
+                 data-hash-md5="aabbcc112233">file1.pdf</a></li>
+        </ul>
+      </li>
+    </ul>
+  </section>
+  <div class="dl-link">
+    <span class="download">
+      <a download="file1.pdf" href="/download/file/key/abc/file_id/1"
+         data-hash-md5="aabbcc112233">file1.pdf</a>
+    </span>
+  </div>
 </body>
 </html>
 `;
@@ -37,14 +69,15 @@ const BUNDLE_HTML_NO_DOWNLOAD_ATTR = `
 <!DOCTYPE html>
 <html>
 <body>
-  <section id="bundle">
-    <h2 class="title">Minimal Bundle</h2>
-    <div class="dl-link">
-      <span class="download">
-        <a href="/dl/xyz/book.pdf">book.pdf</a>
-      </span>
-    </div>
-  </section>
+  <section id="bundle"><h2 class="title">Minimal Bundle</h2></section>
+  <ul>
+    <li>
+      <a href="/download/zipfile/key/xyz/type/basic">Entire Collection</a>
+      <ul>
+        <li><a href="/download/file/key/xyz/file_id/9">book.pdf</a></li>
+      </ul>
+    </li>
+  </ul>
 </body>
 </html>
 `;
@@ -54,13 +87,14 @@ const BUNDLE_HTML_NO_TITLE = `
 <!DOCTYPE html>
 <html>
 <body>
-  <section id="bundle">
-    <div class="dl-link">
-      <span class="download">
-        <a href="/dl/nk/f.pdf" download="f.pdf" data-hash-md5="000">File</a>
-      </span>
-    </div>
-  </section>
+  <ul>
+    <li>
+      <a href="/download/zipfile/key/nk/type/basic">Entire Collection</a>
+      <ul>
+        <li><a download="f.pdf" href="/download/file/key/nk/file_id/1" data-hash-md5="000">File</a></li>
+      </ul>
+    </li>
+  </ul>
 </body>
 </html>
 `;
@@ -97,14 +131,27 @@ describe('fetchBundlePage', () => {
     expect(page.files).toHaveLength(2);
     expect(page.files[0]).toEqual({
       filename: 'file1.pdf',
-      url: 'https://bundleofholding.com/dl/abc/file1.pdf',
+      url: 'https://bundleofholding.com/download/file/key/abc/file_id/1',
       md5: 'aabbcc112233',
     });
     expect(page.files[1]).toEqual({
       filename: 'file2.epub',
-      url: 'https://bundleofholding.com/dl/abc/file2.epub',
+      url: 'https://bundleofholding.com/download/file/key/abc/file_id/2',
       md5: 'ddeeff445566',
     });
+  });
+
+  it('does not include the bundle zip link itself', async () => {
+    fetchMock.mockResolvedValue(mockResponse(BUNDLE_HTML));
+    const page = await fetchBundlePage('the-fantasy-bundle');
+    expect(page.files.every((f) => !f.url.includes('/download/zipfile/'))).toBe(true);
+  });
+
+  it('deduplicates files that appear in both sub-UL and product cards', async () => {
+    fetchMock.mockResolvedValue(mockResponse(BUNDLE_HTML_WITH_CARDS));
+    const page = await fetchBundlePage('dedup-bundle');
+    expect(page.files).toHaveLength(1);
+    expect(page.files[0].filename).toBe('file1.pdf');
   });
 
   it('falls back to anchor text when download attribute is absent', async () => {
