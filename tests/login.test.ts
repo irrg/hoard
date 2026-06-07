@@ -58,9 +58,7 @@ describe('loginWeb', () => {
   });
 
   it('returns cookie string on 303 redirect', async () => {
-    fetchMock.mockResolvedValue(
-      mockResponse('', 303, { 'set-cookie': ['sid=tok; Path=/'] }),
-    );
+    fetchMock.mockResolvedValue(mockResponse('', 303, { 'set-cookie': ['sid=tok; Path=/'] }));
     const cookie = await loginWeb('user@example.com', 'secret');
     expect(cookie).toBe('sid=tok');
   });
@@ -94,9 +92,7 @@ describe('loginWeb', () => {
   });
 
   it('sends credentials as form-encoded body', async () => {
-    fetchMock.mockResolvedValue(
-      mockResponse('', 302, { 'set-cookie': ['s=1'] }),
-    );
+    fetchMock.mockResolvedValue(mockResponse('', 302, { 'set-cookie': ['s=1'] }));
     await loginWeb('me@test.com', 'p@ssword');
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toContain('/user/login');
@@ -113,8 +109,7 @@ describe('loginWeb', () => {
     const respWithout = {
       ...resp,
       headers: {
-        get: (name: string) =>
-          name.toLowerCase() === 'set-cookie' ? 'fallback=1; Path=/' : null,
+        get: (name: string) => (name.toLowerCase() === 'set-cookie' ? 'fallback=1; Path=/' : null),
       },
     };
     fetchMock.mockResolvedValue(respWithout);

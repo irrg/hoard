@@ -62,8 +62,9 @@ export class Library {
 
       let bundleHadNewFiles = false;
       const tasks = files.map((f) => async () => {
-        const wrote = await this.downloadFile(page.title, dir, f);
-        if (wrote) bundleHadNewFiles = true;
+        const result = await this.downloadFile(page.title, dir, f);
+        if (result === 'downloaded') bundleHadNewFiles = true;
+        if (result === 'error') errors++;
       });
 
       await runConcurrently(tasks, this.jobs);
@@ -90,7 +91,7 @@ export class Library {
     bundleName: string,
     dir: string,
     file: DownloadFile,
-  ): Promise<boolean> {
+  ): Promise<'downloaded' | 'skipped' | 'error'> {
     const outPath = join(dir, file.filename);
     const sidecarPath = outPath + '.md5';
 
@@ -102,30 +103,33 @@ export class Library {
             const stored = (await readFile(sidecarPath, 'utf8')).trim();
             if (stored === file.md5) {
               this.logger(`Skipping ${bundleName} - ${file.filename}`);
-              return false;
+              return 'skipped';
             }
           } else {
             const actual = await md5sum(outPath);
             if (actual === file.md5) {
               await writeFile(sidecarPath, file.md5);
               this.logger(`Skipping ${bundleName} - ${file.filename}`);
-              return false;
+              return 'skipped';
             }
           }
           this.logger(`Checksum mismatch: ${file.filename}`);
-          const oldDir = join(dir, 'old');
-          await mkdir(oldDir, { recursive: true });
-          this.logger(`Moving ${file.filename} to old/`);
-          await rename(outPath, join(oldDir, file.filename));
+          if (!this.dryRun) {
+            const oldDir = join(dir, 'old');
+            await mkdir(oldDir, { recursive: true });
+            this.logger(`Moving ${file.filename} to old/`);
+            const timestamp = new Date().toISOString().split('T')[0];
+            await rename(outPath, join(oldDir, `${timestamp}-${file.filename}`));
+          }
         } else {
           this.logger(`Skipping ${bundleName} - ${file.filename}`);
-          return false;
+          return 'skipped';
         }
       }
 
       if (this.dryRun) {
         this.logger(`Dry run: ${bundleName} - ${file.filename}`);
-        return false;
+        return 'skipped';
       }
 
       this.logger(`Downloading ${file.filename}`);
@@ -140,7 +144,7 @@ export class Library {
         }
       }
 
-      return true;
+      return 'downloaded';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
@@ -148,7 +152,7 @@ export class Library {
         join(this.outputDir, 'errors.txt'),
         `${bundleName} - ${file.filename}: ${msg}\n`,
       );
-      return false;
+      return 'error';
     }
   }
 }

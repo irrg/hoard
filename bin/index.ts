@@ -123,7 +123,7 @@ const lib = new Library({
 if (keys.length > 0) {
   bundles = keys.map((k) => ({ name: k, key: k }));
 } else {
-  process.stdout.write('Fetching Wizard\'s Cabinet...\n');
+  process.stdout.write("Fetching Wizard's Cabinet...\n");
   bundles = await fetchCabinet(cookie);
   process.stdout.write(`Found ${bundles.length} bundle(s).\n`);
 }

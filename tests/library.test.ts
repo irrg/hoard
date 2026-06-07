@@ -40,8 +40,9 @@ vi.mock('../src/bundle.js', () => ({
 
 import { existsSync } from 'fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
-import { md5sum, streamToFile } from '../src/utils.js';
+
 import { fetchBundlePage } from '../src/bundle.js';
+import { md5sum, streamToFile } from '../src/utils.js';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -77,11 +78,13 @@ function makeBundle(key = 'bundle-key', title = 'Test Bundle', files = [makeFile
   return { key, title, files };
 }
 
-function makeFile(opts: {
-  filename?: string;
-  url?: string;
-  md5?: string;
-} = {}) {
+function makeFile(
+  opts: {
+    filename?: string;
+    url?: string;
+    md5?: string;
+  } = {},
+) {
   return {
     filename: opts.filename ?? 'book.pdf',
     url: opts.url ?? 'https://bundleofholding.com/dl/x/book.pdf',
@@ -156,10 +159,9 @@ describe('Library.downloadBundles', () => {
   it('creates output directory on first download', async () => {
     const lib = makeLibrary();
     await lib.downloadBundles([makeBundleRef()]);
-    expect(mockMkdir).toHaveBeenCalledWith(
-      expect.stringContaining('Test Bundle'),
-      { recursive: true },
-    );
+    expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('Test Bundle'), {
+      recursive: true,
+    });
   });
 
   it('does not create directory in dry-run mode', async () => {
@@ -204,10 +206,7 @@ describe('Library.downloadBundles', () => {
     mockMd5sum.mockResolvedValue('abc123');
     const lib = makeLibrary();
     await lib.downloadBundles([makeBundleRef()]);
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      expect.stringContaining('.md5'),
-      'abc123',
-    );
+    expect(mockWriteFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
   });
 
   it('handles multiple bundles and accumulates downloaded count', async () => {
@@ -261,10 +260,22 @@ describe('Library.downloadBundles — file skip logic', () => {
     expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('old'), { recursive: true });
     expect(mockRename).toHaveBeenCalledWith(
       expect.stringContaining('book.pdf'),
-      expect.stringContaining('old'),
+      expect.stringMatching(/old\/\d{4}-\d{2}-\d{2}-book\.pdf$/),
     );
     expect(mockStreamToFile).toHaveBeenCalledOnce();
     expect(result.downloaded).toBe(1);
+  });
+
+  it('does not mkdir or rename on checksum mismatch in dry-run mode', async () => {
+    mockExistsSync.mockImplementation((p: string) => !String(p).endsWith('.md5'));
+    mockMd5sum.mockResolvedValue('differenthash');
+
+    const lib = makeLibrary({ dryRun: true });
+    await lib.downloadBundles([makeBundleRef()]);
+
+    expect(mockMkdir).not.toHaveBeenCalled();
+    expect(mockRename).not.toHaveBeenCalled();
+    expect(mockStreamToFile).not.toHaveBeenCalled();
   });
 
   it('skips re-download when sidecar hash mismatches but re-reads as mismatch', async () => {
@@ -278,15 +289,16 @@ describe('Library.downloadBundles — file skip logic', () => {
     const result = await lib.downloadBundles([makeBundleRef()]);
 
     // Should move to old/ and re-download
-    expect(mockRename).toHaveBeenCalled();
+    expect(mockRename).toHaveBeenCalledWith(
+      expect.stringContaining('book.pdf'),
+      expect.stringMatching(/old\/\d{4}-\d{2}-\d{2}-book\.pdf$/),
+    );
     expect(mockStreamToFile).toHaveBeenCalledOnce();
     expect(result.downloaded).toBe(1);
   });
 
   it('skips without md5 check when file has no md5 in bundle metadata', async () => {
-    mockFetchBundlePage.mockResolvedValue(
-      makeBundle('k', 'B', [makeFile({ md5: '' })]),
-    );
+    mockFetchBundlePage.mockResolvedValue(makeBundle('k', 'B', [makeFile({ md5: '' })]));
     // File exists, no md5 to check → just skip
     mockExistsSync.mockReturnValue(true);
 
@@ -308,7 +320,7 @@ describe('Library.downloadBundles — error handling', () => {
     const lib = makeLibrary();
     const result = await lib.downloadBundles([makeBundleRef()]);
 
-    expect(result.errors).toBe(0); // errors counter tracks fetch-level failures
+    expect(result.errors).toBe(1);
     expect(mockAppendFile).toHaveBeenCalledWith(
       '/output/errors.txt',
       expect.stringContaining('network error'),

@@ -1,21 +1,6 @@
-import { createReadStream } from 'fs';
-import { EventEmitter } from 'events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { cleanPath, md5sum, runConcurrently, streamToFile, NoDownloadError } from '../src/utils.js';
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-function mockResponse(body: unknown, status = 200) {
-  return {
-    status,
-    ok: status < 400,
-    json: async () => body,
-    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
-  };
-}
 
 // ---------------------------------------------------------------------------
 // cleanPath
@@ -152,7 +137,7 @@ describe('streamToFile', () => {
 describe('md5sum', () => {
   it('returns the MD5 hex digest of a file', async () => {
     // Use the package.json itself as a stable file we know exists
-    const hash = await md5sum('/Users/irrg/src/bundleofholding-hoard/package.json');
+    const hash = await md5sum(new URL('../package.json', import.meta.url).pathname);
     expect(hash).toMatch(/^[0-9a-f]{32}$/);
   });
 
