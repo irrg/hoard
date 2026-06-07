@@ -14,6 +14,7 @@ export interface LibraryOptions {
   filters: string[];
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
+  deep?: boolean;
 }
 
 export class Library {
@@ -39,6 +40,7 @@ export class Library {
       dryRun: options.dryRun,
       filters: options.filters,
       logger: this.logger,
+      deep: options.deep,
     };
   }
 

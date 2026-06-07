@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
 import path from 'path';
 
@@ -35,6 +35,7 @@ export interface BundleOptions {
   dryRun: boolean;
   filters: string[];
   logger: (msg: string) => void;
+  deep?: boolean;
 }
 
 export class Bundle {
@@ -70,6 +71,7 @@ export class Bundle {
     onFile?: (result: 'downloaded' | 'skipped' | 'error') => void,
   ): Promise<{ newFiles: number; errors: number }> {
     const bundleDir = path.join(this.outputDir, this.title);
+    if (!this.options.deep && hasFiles(bundleDir)) return { newFiles: 0, errors: 0 };
     const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
     const subproducts = filters.length
       ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
@@ -119,7 +121,7 @@ export class Bundle {
     if (existsSync(outFile)) {
       const apiMd5 = item.md5?.toLowerCase() || null;
       if (apiMd5) {
-        const md5File = withMd5Suffix(outFile);
+        const md5File = sidecarPath(this.outputDir, outFile);
         if (existsSync(md5File)) {
           const stored = (await readFile(md5File, 'utf8')).trim();
           if (stored === apiMd5) {
@@ -129,13 +131,19 @@ export class Bundle {
         } else {
           const computed = await md5sum(outFile);
           if (computed === apiMd5) {
+            await mkdir(path.dirname(md5File), { recursive: true });
             await writeFile(md5File, apiMd5);
             this.options.logger(`Skipping ${productName} - ${filename}`);
             return 'skipped';
           }
         }
         this.options.logger(`Checksum mismatch: ${filename}, re-downloading`);
-        const oldDir = path.join(dir, 'old');
+        const oldDir = path.join(
+          this.outputDir,
+          '.data',
+          path.relative(this.outputDir, dir),
+          'old',
+        );
         await mkdir(oldDir, { recursive: true });
         const stamp = new Date().toISOString().split('T')[0];
         await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
@@ -155,7 +163,7 @@ export class Bundle {
       const msg = e instanceof Error ? e.message : String(e);
       this.options.logger(`Download failed: ${productName} - ${filename}: ${msg}`);
       await appendFile(
-        path.join(this.outputDir, 'errors.txt'),
+        path.join(this.outputDir, '.data', 'errors.txt'),
         `Cannot download: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
       );
       return 'error';
@@ -164,7 +172,9 @@ export class Bundle {
     const apiMd5 = item.md5 || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
-      await writeFile(withMd5Suffix(outFile), computed);
+      const md5Out = sidecarPath(this.outputDir, outFile);
+      await mkdir(path.dirname(md5Out), { recursive: true });
+      await writeFile(md5Out, apiMd5);
       if (computed !== apiMd5) {
         this.options.logger(`MD5 mismatch after download: ${filename}`);
       }
@@ -181,6 +191,15 @@ export class Bundle {
   }
 }
 
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
+  }
+}
+
 function filenameFromUrl(url: string): string {
   try {
     return new URL(url).pathname.split('/').pop() ?? '';
@@ -189,7 +208,9 @@ function filenameFromUrl(url: string): string {
   }
 }
 
-function withMd5Suffix(filePath: string): string {
-  const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + '.md5' : filePath + '.md5';
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = path.relative(outputDir, filePath);
+  const ext = path.extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return path.join(outputDir, '.data', base + '.md5');
 }

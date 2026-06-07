@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const {
   existsSyncMock,
+  readdirSyncMock,
   writeFileMock,
   readFileMock,
   mkdirMock,
@@ -15,6 +16,7 @@ const {
   md5sumMock,
 } = vi.hoisted(() => ({
   existsSyncMock: vi.fn<(p: string) => boolean>(() => false),
+  readdirSyncMock: vi.fn(() => [] as unknown as ReturnType<typeof import('fs').readdirSync>),
   writeFileMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   readFileMock: vi.fn<() => Promise<string>>(() => Promise.resolve('')),
   mkdirMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
@@ -26,6 +28,7 @@ const {
 
 vi.mock('fs', () => ({
   existsSync: existsSyncMock,
+  readdirSync: readdirSyncMock,
   createWriteStream: vi.fn(() => ({ write: vi.fn(), end: vi.fn() })),
   createReadStream: vi.fn(),
 }));
@@ -136,6 +139,7 @@ describe('Bundle.download', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     existsSyncMock.mockReturnValue(false);
+    readdirSyncMock.mockReturnValue([] as unknown as ReturnType<typeof import('fs').readdirSync>);
     streamToFileMock.mockResolvedValue(undefined);
     md5sumMock.mockResolvedValue('aabbccdd');
   });
@@ -211,6 +215,30 @@ describe('Bundle.download', () => {
     expect(renameMock).toHaveBeenCalled();
     expect(streamToFileMock).toHaveBeenCalled();
     expect(result.newFiles).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // shallow mode
+  // -------------------------------------------------------------------------
+
+  it('returns { newFiles: 0, errors: 0 } without downloading when bundleDir has files and deep is false', async () => {
+    existsSyncMock.mockReturnValueOnce(true);
+    readdirSyncMock.mockReturnValueOnce(['some-subproduct'] as unknown as ReturnType<
+      typeof import('fs').readdirSync
+    >);
+    const b = new Bundle('k', makeData(), makeOptions());
+    const result = await b.download();
+    expect(result).toEqual({ newFiles: 0, errors: 0 });
+    expect(streamToFileMock).not.toHaveBeenCalled();
+  });
+
+  it('does not skip when deep is true even if bundleDir has files', async () => {
+    // With deep: true the shallow hasFiles check is skipped entirely;
+    // existsSync defaults to false (from beforeEach) so the file downloads normally.
+    const b = new Bundle('k', makeData(), makeOptions({ deep: true }));
+    const result = await b.download();
+    expect(result.newFiles).toBe(1);
+    expect(streamToFileMock).toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
