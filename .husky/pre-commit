@@ -1,1 +1,1 @@
-pnpm lint && pnpm fmt:check
+pnpm lint && pnpm fmt:check && pnpm test

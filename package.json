@@ -16,9 +16,9 @@
     "prepublishOnly": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "oxlint src bin",
-    "fmt": "oxfmt src bin",
-    "fmt:check": "oxfmt --check src bin",
+    "lint": "oxlint src bin tests",
+    "fmt": "oxfmt src bin tests",
+    "fmt:check": "oxfmt --check src bin tests",
     "hoard": "node --import tsx/esm bin/index.ts",
     "prepare": "husky"
   },
