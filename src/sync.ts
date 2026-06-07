@@ -44,6 +44,7 @@ async function syncItchio(
     if (lib.games.length > 0)
       bar = multiBar.create(lib.games.length, 0, { name: barName("itchio"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadLibrary();
+    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -77,6 +78,7 @@ async function syncDrivethru(
     if (lib.products.length > 0)
       bar = multiBar.create(lib.products.length, 0, { name: barName("drivethru"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadLibrary();
+    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -113,6 +115,7 @@ async function syncHumblebundle(
         downloaded: 0,
       });
     const { downloaded, errors } = await lib.downloadLibrary();
+    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
@@ -155,6 +158,7 @@ async function syncBundleofholding(
       },
     });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
+    if (bar) multiBar.remove(bar);
     return { ok: true, downloaded, errors };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
