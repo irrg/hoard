@@ -62,25 +62,31 @@ export class Library {
   }
 
   async downloadBundles(bundles: BundleRef[]): Promise<{ downloaded: number; errors: number }> {
-    type BundleWork = { title: string; dir: string; files: DownloadFile[] };
-    const work: BundleWork[] = [];
+    type BundleEntry = { title: string; dir: string; files: DownloadFile[]; skip: boolean };
+    const entries: BundleEntry[] = [];
 
     for (const ref of bundles) {
       const page = await this._loadBundlePage(ref.key);
       const dir = join(this.outputDir, cleanPath(page.title));
-      if (!this.deep && hasFiles(dir)) continue;
+      const skip = !this.deep && hasFiles(dir);
       const files = page.files.filter((f) => this.matchesFilter(f.filename));
-      if (files.length > 0) work.push({ title: page.title, dir, files });
+      if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
     }
 
-    const total = work.reduce((s, w) => s + w.files.length, 0);
+    const total = entries.reduce((s, e) => s + e.files.length, 0);
     let filesDone = 0;
     let downloaded = 0;
     let errors = 0;
 
     this.onProgress?.(0, total, 0);
 
-    for (const { title, dir, files } of work) {
+    for (const { title, dir, files, skip } of entries) {
+      if (skip) {
+        filesDone += files.length;
+        this.onProgress?.(filesDone, total, downloaded);
+        continue;
+      }
+
       this.logger(`Downloading ${title}`);
       if (!this.dryRun) await mkdir(dir, { recursive: true });
 

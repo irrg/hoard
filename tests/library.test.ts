@@ -313,9 +313,10 @@ describe('Library.downloadBundles — shallow skip', () => {
 
     expect(mockStreamToFile).not.toHaveBeenCalled();
     expect(result.downloaded).toBe(0);
-    // Only the announcement call with total=0 (nothing to download)
-    expect(onProgress).toHaveBeenCalledTimes(1);
-    expect(onProgress).toHaveBeenCalledWith(0, 0, 0);
+    // Announcement + one batch-skip call for the skipped bundle's files
+    expect(onProgress).toHaveBeenCalledTimes(2);
+    expect(onProgress).toHaveBeenNthCalledWith(1, 0, 1, 0);
+    expect(onProgress).toHaveBeenNthCalledWith(2, 1, 1, 0);
   });
 
   it('does not skip when deep: true even if directory has files', async () => {
