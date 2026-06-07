@@ -71,29 +71,39 @@ export class Bundle {
     onFile?: (result: 'downloaded' | 'skipped' | 'error') => void,
   ): Promise<{ newFiles: number; errors: number }> {
     const bundleDir = path.join(this.outputDir, this.title);
-    if (!this.options.deep && hasFiles(bundleDir)) return { newFiles: 0, errors: 0 };
     const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
     const subproducts = filters.length
       ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
       : this.subproducts;
-    let newFiles = 0;
-    let errors = 0;
+
+    type WorkItem = { item: DownloadStructItem; subDir: string; productName: string };
+    const work: WorkItem[] = [];
     for (const sub of subproducts) {
       const subDir = path.join(bundleDir, cleanPath(sub.human_name));
       for (const dl of sub.downloads) {
-        if (this.options.platform) {
-          if (dl.platform.toLowerCase() !== this.options.platform.toLowerCase()) continue;
-        }
-        const items = Array.isArray(dl.download_struct) ? dl.download_struct : [];
-        for (const item of items) {
-          if (item.url?.web) {
-            const result = await this.doDownload(item, subDir, sub.human_name);
-            onFile?.(result);
-            if (result === 'downloaded') newFiles++;
-            else if (result === 'error') errors++;
-          }
+        if (
+          this.options.platform &&
+          dl.platform.toLowerCase() !== this.options.platform.toLowerCase()
+        )
+          continue;
+        for (const item of Array.isArray(dl.download_struct) ? dl.download_struct : []) {
+          if (item.url?.web) work.push({ item, subDir, productName: sub.human_name });
         }
       }
+    }
+
+    if (!this.options.deep && hasFiles(bundleDir)) {
+      for (const _ of work) onFile?.('skipped');
+      return { newFiles: 0, errors: 0 };
+    }
+
+    let newFiles = 0;
+    let errors = 0;
+    for (const { item, subDir, productName } of work) {
+      const result = await this.doDownload(item, subDir, productName);
+      onFile?.(result);
+      if (result === 'downloaded') newFiles++;
+      else if (result === 'error') errors++;
     }
     return { newFiles, errors };
   }
