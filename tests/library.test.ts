@@ -107,7 +107,9 @@ describe('Library', () => {
 
     it('throws on non-ok HTTP response', async () => {
       fetchMock.mockResolvedValue({ status: 403, ok: false, json: async () => ({}) });
-      await expect(makeLibrary().loadProducts()).rejects.toThrow('Failed to load products: HTTP 403');
+      await expect(makeLibrary().loadProducts()).rejects.toThrow(
+        'Failed to load products: HTTP 403',
+      );
     });
 
     it('throws when JSON parsing fails', async () => {
@@ -155,7 +157,9 @@ describe('Library', () => {
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
         expect.stringContaining('order_products'),
-        expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'my-bearer' }) }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'my-bearer' }),
+        }),
       );
     });
   });
@@ -164,9 +168,10 @@ describe('Library', () => {
     function fakeProduct(name: string, wrote: boolean | 'throw' = true) {
       return {
         name,
-        download: wrote === 'throw'
-          ? vi.fn().mockRejectedValue(new Error(`Download failed for ${name}`))
-          : vi.fn().mockResolvedValue(wrote),
+        download:
+          wrote === 'throw'
+            ? vi.fn().mockRejectedValue(new Error(`Download failed for ${name}`))
+            : vi.fn().mockResolvedValue(wrote),
       } as unknown as import('../src/product.js').Product;
     }
 
@@ -209,8 +214,8 @@ describe('Library', () => {
       lib.products = [p1, p2];
       const result = await lib.downloadLibrary();
       expect(result.downloaded).toBe(1);
-      expect((p1.download as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
-      expect((p2.download as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect(p1.download as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+      expect(p2.download as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     });
 
     it('filter matching is case-insensitive', async () => {

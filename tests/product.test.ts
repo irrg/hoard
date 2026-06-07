@@ -26,9 +26,10 @@ vi.mock('../src/utils.js', async (importOriginal) => {
 
 import * as fsSync from 'fs';
 import * as fsPromises from 'fs/promises';
-import { streamToFile, md5sum } from '../src/utils.js';
+
 import { Product } from '../src/product.js';
 import type { ProductData, DownloadItemData, ProductOptions } from '../src/product.js';
+import { streamToFile, md5sum } from '../src/utils.js';
 
 const existsSyncMock = vi.mocked(fsSync.existsSync);
 const writeFileMock = vi.mocked(fsPromises.writeFile);
@@ -63,7 +64,10 @@ function makeOptions(overrides: Partial<ProductOptions> = {}): ProductOptions {
   };
 }
 
-function makeProduct(dataOverrides: Partial<ProductData> = {}, optOverrides: Partial<ProductOptions> = {}) {
+function makeProduct(
+  dataOverrides: Partial<ProductData> = {},
+  optOverrides: Partial<ProductOptions> = {},
+) {
   return new Product(makeProductData(dataOverrides), makeOptions(optOverrides));
 }
 
@@ -242,9 +246,9 @@ describe('Product.doDownload', () => {
   it('re-downloads when file exists but md5 sidecar does not match', async () => {
     // outFile exists, md5File exists, but checksums differ
     existsSyncMock
-      .mockReturnValueOnce(true)  // outFile exists
-      .mockReturnValueOnce(true)  // md5File exists
-      .mockReturnValue(false);    // subsequent checks
+      .mockReturnValueOnce(true) // outFile exists
+      .mockReturnValueOnce(true) // md5File exists
+      .mockReturnValue(false); // subsequent checks
     readFileMock.mockResolvedValue('old-checksum' as unknown as Buffer);
     const item = makeItem({
       checksums: [{ checksum: 'new-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
@@ -285,10 +289,7 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     await p.doDownload(item, 'tok');
-    expect(writeFileMock).toHaveBeenCalledWith(
-      expect.stringContaining('.md5'),
-      'computed-hash',
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'computed-hash');
   });
 
   it('does not write md5 sidecar when no checksum is available', async () => {
@@ -349,14 +350,8 @@ describe('Product.doDownload', () => {
     const result = await promise;
     expect(result).toBe(true);
     // prepare + check = 2 fetch calls (plus later streamToFile which uses its own fetch)
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('prepare'),
-      expect.any(Object),
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('check'),
-      expect.any(Object),
-    );
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('prepare'), expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('check'), expect.any(Object));
     vi.useRealTimers();
   });
 
@@ -390,16 +385,15 @@ describe('Product.doDownload', () => {
     existsSyncMock.mockReturnValue(false);
     const p = makeProduct();
     await p.doDownload(makeItem(), 'tok');
-    expect(mkdirMock).toHaveBeenCalledWith(
-      expect.stringContaining('Acme Publisher'),
-      { recursive: true },
-    );
+    expect(mkdirMock).toHaveBeenCalledWith(expect.stringContaining('Acme Publisher'), {
+      recursive: true,
+    });
   });
 
   it('uses the newest checksum when multiple checksums are present', async () => {
     existsSyncMock
-      .mockReturnValueOnce(true)   // outFile exists
-      .mockReturnValueOnce(true);  // md5File exists
+      .mockReturnValueOnce(true) // outFile exists
+      .mockReturnValueOnce(true); // md5File exists
     readFileMock.mockResolvedValue('newest-checksum' as unknown as Buffer);
     const item = makeItem({
       checksums: [
