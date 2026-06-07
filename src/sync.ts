@@ -1,16 +1,14 @@
-import { join } from 'node:path';
+import { join } from "node:path";
 
-import { fetchCabinet, Library as BoHLibrary, loginWeb } from '@irrg/bundleofholding-hoard';
-import { Library as DrivethruLibrary } from '@irrg/drivethru-hoard';
-import { Library as HumbleLibrary } from '@irrg/humblebundle-hoard';
-import { Library as ItchioLibrary, loginAPI as itchioLogin } from '@irrg/itchio-hoard';
-import cliProgress from 'cli-progress';
+import { fetchCabinet, Library as BoHLibrary, loginWeb } from "@irrg/bundleofholding-hoard";
+import { Library as DrivethruLibrary } from "@irrg/drivethru-hoard";
+import { Library as HumbleLibrary } from "@irrg/humblebundle-hoard";
+import { Library as ItchioLibrary, loginAPI as itchioLogin } from "@irrg/itchio-hoard";
+import cliProgress from "cli-progress";
 
-import { type HoardConfig, type Storefront } from './config.js';
+import { type HoardConfig, type Storefront } from "./config.js";
 
-type SyncResult =
-  | { ok: true; downloaded: number; errors: number }
-  | { ok: false; reason: string };
+type SyncResult = { ok: true; downloaded: number; errors: number } | { ok: false; reason: string };
 
 const BAR_NAME_WIDTH = 16;
 
@@ -25,7 +23,7 @@ async function syncItchio(
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: false, reason: "not configured" };
   }
   try {
     const token = await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
@@ -34,7 +32,7 @@ async function syncItchio(
       token,
       jobs,
       false,
-      join(outputDir, 'itchio'),
+      join(outputDir, "itchio"),
       false,
       [],
       () => {},
@@ -42,7 +40,7 @@ async function syncItchio(
     );
     await lib.loadOwnedGames();
     if (lib.games.length > 0)
-      bar = multiBar.create(lib.games.length, 0, { name: barName('itchio'), downloaded: 0 });
+      bar = multiBar.create(lib.games.length, 0, { name: barName("itchio"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -56,12 +54,12 @@ async function syncDrivethru(
   jobs: number,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
-  if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: 'not configured' };
+  if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: "not configured" };
   try {
     let bar: cliProgress.SingleBar | null = null;
     const lib = new DrivethruLibrary({
       apiKey: config.HOARD_DRIVETHRU_API_KEY,
-      outputDir: join(outputDir, 'drivethru'),
+      outputDir: join(outputDir, "drivethru"),
       jobs,
       compat: false,
       omitPublisher: false,
@@ -73,7 +71,7 @@ async function syncDrivethru(
     await lib.authenticate();
     await lib.loadProducts();
     if (lib.products.length > 0)
-      bar = multiBar.create(lib.products.length, 0, { name: barName('drivethru'), downloaded: 0 });
+      bar = multiBar.create(lib.products.length, 0, { name: barName("drivethru"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -87,12 +85,12 @@ async function syncHumblebundle(
   jobs: number,
   multiBar: cliProgress.MultiBar,
 ): Promise<SyncResult> {
-  if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: 'not configured' };
+  if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: "not configured" };
   try {
     let bar: cliProgress.SingleBar | null = null;
     const lib = new HumbleLibrary({
       cookie: config.HOARD_HUMBLEBUNDLE_SESSION,
-      outputDir: join(outputDir, 'humblebundle'),
+      outputDir: join(outputDir, "humblebundle"),
       jobs,
       extInclude: [],
       extExclude: [],
@@ -103,7 +101,10 @@ async function syncHumblebundle(
     });
     await lib.loadOrders();
     if (lib.bundles.length > 0)
-      bar = multiBar.create(lib.bundles.length, 0, { name: barName('humblebundle'), downloaded: 0 });
+      bar = multiBar.create(lib.bundles.length, 0, {
+        name: barName("humblebundle"),
+        downloaded: 0,
+      });
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -120,7 +121,7 @@ async function syncBundleofholding(
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
     !!config.HOARD_BUNDLEOFHOLDING_EMAIL && !!config.HOARD_BUNDLEOFHOLDING_PASSWORD;
-  if (!hasCookie && !hasCredentials) return { ok: false, reason: 'not configured' };
+  if (!hasCookie && !hasCredentials) return { ok: false, reason: "not configured" };
   try {
     let cookie = config.HOARD_BUNDLEOFHOLDING_COOKIE;
     if (!cookie) {
@@ -132,7 +133,7 @@ async function syncBundleofholding(
     const bundles = await fetchCabinet(cookie);
     let bar: cliProgress.SingleBar | null = null;
     const lib = new BoHLibrary({
-      outputDir: join(outputDir, 'bundleofholding'),
+      outputDir: join(outputDir, "bundleofholding"),
       jobs,
       dryRun: false,
       cookie,
@@ -141,7 +142,7 @@ async function syncBundleofholding(
       onProgress: (done, _total, downloaded) => bar?.update(done, { downloaded }),
     });
     if (bundles.length > 0)
-      bar = multiBar.create(bundles.length, 0, { name: barName('bundleofholding'), downloaded: 0 });
+      bar = multiBar.create(bundles.length, 0, { name: barName("bundleofholding"), downloaded: 0 });
     const { downloaded, errors } = await lib.downloadBundles(bundles);
     return { ok: true, downloaded, errors };
   } catch (e) {
@@ -157,9 +158,9 @@ export async function cmdSync(
 ): Promise<void> {
   const multiBar = new cliProgress.MultiBar(
     {
-      format: '{name} |{bar}| {value}/{total} ({downloaded} new)',
-      barCompleteChar: '█',
-      barIncompleteChar: '░',
+      format: "{name} |{bar}| {value}/{total} ({downloaded} new)",
+      barCompleteChar: "█",
+      barIncompleteChar: "░",
       hideCursor: true,
       clearOnComplete: false,
       stopOnComplete: false,
@@ -171,16 +172,16 @@ export async function cmdSync(
     storefronts.map(async (sf) => {
       let result: SyncResult;
       switch (sf) {
-        case 'itchio':
+        case "itchio":
           result = await syncItchio(config, outputDir, jobs, multiBar);
           break;
-        case 'drivethru':
+        case "drivethru":
           result = await syncDrivethru(config, outputDir, jobs, multiBar);
           break;
-        case 'humblebundle':
+        case "humblebundle":
           result = await syncHumblebundle(config, outputDir, jobs, multiBar);
           break;
-        case 'bundleofholding':
+        case "bundleofholding":
           result = await syncBundleofholding(config, outputDir, jobs, multiBar);
           break;
       }
