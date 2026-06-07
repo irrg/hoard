@@ -289,7 +289,7 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     await p.doDownload(item, 'tok');
-    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'computed-hash');
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
   it('does not write md5 sidecar when no checksum is available', async () => {

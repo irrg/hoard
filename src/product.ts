@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
-import path from 'path';
+import path, { dirname, extname, relative } from 'path';
 
 import { API_BASE } from './auth.js';
 import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from './utils.js';
@@ -66,8 +66,14 @@ export class Product {
 
     if (wrote === 0) return false;
 
+    const manifestPath = path.join(
+      this.outputDir,
+      '.data',
+      relative(this.outputDir, this.dir) + '.json',
+    );
+    await mkdir(dirname(manifestPath), { recursive: true });
     await writeFile(
-      this.dir + '.json',
+      manifestPath,
       JSON.stringify(
         {
           name: this.name,
@@ -96,8 +102,7 @@ export class Product {
 
     if (existsSync(outFile)) {
       this.options.logger(`File already exists: ${filename}`);
-      const md5File = withSuffix(outFile, '.md5');
-
+      const md5File = sidecarPath(this.outputDir, outFile);
       if (apiChecksum && existsSync(md5File)) {
         const stored = (await readFile(md5File, 'utf8')).trim();
         if (stored === apiChecksum) {
@@ -115,7 +120,7 @@ export class Product {
         this.options.logger(`File outdated: ${filename}`);
       }
 
-      const oldDir = path.join(this.dir, 'old');
+      const oldDir = path.join(this.outputDir, '.data', relative(this.outputDir, this.dir), 'old');
       await mkdir(oldDir, { recursive: true });
       const timestamp = new Date().toISOString().split('T')[0];
       this.options.logger(`Moving ${filename} to old/`);
@@ -147,8 +152,9 @@ export class Product {
 
     if (apiChecksum) {
       const computed = await md5sum(outFile);
-      const md5File = withSuffix(outFile, '.md5');
-      await writeFile(md5File, computed);
+      const md5File = sidecarPath(this.outputDir, outFile);
+      await mkdir(dirname(md5File), { recursive: true });
+      await writeFile(md5File, apiChecksum);
       if (computed !== apiChecksum) {
         this.options.logger(`Failed to verify ${filename}`);
       }
@@ -203,7 +209,7 @@ export class Product {
   ): Promise<void> {
     const safeUrl = url.replace(/applicationKey=[^&]+/, 'applicationKey=REDACTED');
     await appendFile(
-      path.join(this.outputDir, 'errors.txt'),
+      path.join(this.outputDir, '.data', 'errors.txt'),
       [
         ` Cannot download: ${this.name}`,
         ` Path: ${outFile}`,
@@ -224,9 +230,11 @@ function newestChecksum(item: DownloadItemData): string | null {
   return sorted[0].checksum?.toLowerCase() ?? null;
 }
 
-function withSuffix(filePath: string, newExt: string): string {
-  const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + newExt : filePath + newExt;
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = relative(outputDir, filePath);
+  const ext = extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return path.join(outputDir, '.data', base + '.md5');
 }
 
 function sleep(ms: number): Promise<void> {
