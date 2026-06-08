@@ -1,6 +1,6 @@
 {
   "name": "@irrg/humblebundle-hoard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "BSD-3-Clause",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -27,18 +27,22 @@
     "lint": "oxlint src tests bin",
     "fmt": "oxfmt src tests bin",
     "fmt:check": "oxfmt --check src tests bin",
-    "humblebundle-hoard": "node --import tsx/esm bin/index.ts"
+    "humblebundle-hoard": "node --import tsx/esm bin/index.ts",
+    "prepare": "husky"
   },
   "dependencies": {
-    "@clack/prompts": "^0.9.0"
+    "@clack/prompts": "^0.9.0",
+    "cli-progress": "^3.12.0"
   },
   "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
     "@types/node": "^22.0.0",
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "husky": "^9.0.0"
   },
   "publishConfig": {
     "access": "public"

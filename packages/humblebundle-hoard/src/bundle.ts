@@ -1,8 +1,8 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
 import path from 'path';
 
-import { streamToFile, md5sum, cleanPath } from './utils.js';
+import { streamToFile, md5sum, cleanPath, runConcurrently } from './utils.js';
 
 export interface DownloadStructItem {
   url: { web: string; bittorrent?: string };
@@ -34,6 +34,14 @@ export interface BundleOptions {
   extExclude: string[];
   dryRun: boolean;
   filters: string[];
+  logger: (msg: string) => void;
+  deep?: boolean;
+}
+
+export interface BundleWorkItem {
+  item: DownloadStructItem;
+  subDir: string;
+  productName: string;
 }
 
 export class Bundle {
@@ -42,7 +50,7 @@ export class Bundle {
   title: string;
   subproducts: SubProduct[];
   private outputDir: string;
-  private options: BundleOptions;
+  options: BundleOptions;
 
   constructor(key: string, data: BundleData, options: BundleOptions) {
     this.key = key;
@@ -53,103 +61,149 @@ export class Bundle {
     this.options = options;
   }
 
-  async download(): Promise<void> {
-    const bundleDir = path.join(this.outputDir, this.title);
+  get dir(): string {
+    return path.join(this.outputDir, this.title);
+  }
+
+  workItems(): BundleWorkItem[] {
     const filters = (this.options.filters ?? []).map((f) => f.toLowerCase());
     const subproducts = filters.length
       ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
       : this.subproducts;
+    const work: BundleWorkItem[] = [];
     for (const sub of subproducts) {
-      const subDir = path.join(bundleDir, cleanPath(sub.human_name));
+      const subDir = path.join(this.dir, cleanPath(sub.human_name));
       for (const dl of sub.downloads) {
-        if (this.options.platform) {
-          if (dl.platform.toLowerCase() !== this.options.platform.toLowerCase()) continue;
-        }
-        const items = Array.isArray(dl.download_struct) ? dl.download_struct : [];
-        for (const item of items) {
-          if (item.url?.web) {
-            await this.doDownload(item, subDir, sub.human_name);
-          }
+        if (
+          this.options.platform &&
+          dl.platform.toLowerCase() !== this.options.platform.toLowerCase()
+        )
+          continue;
+        for (const item of Array.isArray(dl.download_struct) ? dl.download_struct : []) {
+          if (item.url?.web) work.push({ item, subDir, productName: sub.human_name });
         }
       }
     }
+    return work;
   }
 
-  private async doDownload(
+  totalFiles(): number {
+    return this.subproducts.reduce(
+      (sum, sub) =>
+        sum +
+        sub.downloads.reduce((s, dl) => {
+          const items = Array.isArray(dl.download_struct) ? dl.download_struct : [];
+          return s + items.filter((i) => i.url?.web).length;
+        }, 0),
+      0,
+    );
+  }
+
+  async download(
+    onFile?: (result: 'downloaded' | 'skipped' | 'error') => void,
+    jobs = 1,
+  ): Promise<{ newFiles: number; errors: number }> {
+    const work = this.workItems();
+    if (!this.options.deep && hasFiles(this.dir)) {
+      for (const _ of work) onFile?.('skipped');
+      return { newFiles: 0, errors: 0 };
+    }
+    let newFiles = 0;
+    let errors = 0;
+    const tasks = work.map(({ item, subDir, productName }) => async () => {
+      const result = await this.doDownload(item, subDir, productName);
+      onFile?.(result);
+      if (result === 'downloaded') newFiles++;
+      else if (result === 'error') errors++;
+    });
+    await runConcurrently(tasks, jobs);
+    return { newFiles, errors };
+  }
+
+  async doDownload(
     item: DownloadStructItem,
     dir: string,
     productName: string,
-  ): Promise<boolean> {
+  ): Promise<'downloaded' | 'skipped' | 'error'> {
     const filename = filenameFromUrl(item.url.web);
-    if (!filename) return false;
+    if (!filename) return 'error';
 
     if (!this.shouldDownloadExt(filename)) {
-      console.log(`Skipping ${productName} - ${filename} (extension filtered)`);
-      return false;
+      this.options.logger(`Skipping ${productName} - ${filename} (extension filtered)`);
+      return 'skipped';
     }
 
     const outFile = path.join(dir, filename);
 
     if (this.options.dryRun) {
-      console.log(`Dry run: ${this.name} / ${productName} - ${filename}`);
-      return false;
+      this.options.logger(`Dry run: ${this.name} / ${productName} - ${filename}`);
+      return 'skipped';
     }
 
     if (existsSync(outFile)) {
-      const apiMd5 = item.md5 || null;
+      const apiMd5 = item.md5?.toLowerCase() || null;
       if (apiMd5) {
-        const md5File = withMd5Suffix(outFile);
+        const md5File = sidecarPath(this.outputDir, outFile);
         if (existsSync(md5File)) {
           const stored = (await readFile(md5File, 'utf8')).trim();
           if (stored === apiMd5) {
-            console.log(`Skipping ${productName} - ${filename}`);
-            return false;
+            this.options.logger(`Skipping ${productName} - ${filename}`);
+            return 'skipped';
           }
         } else {
           const computed = await md5sum(outFile);
           if (computed === apiMd5) {
+            await mkdir(path.dirname(md5File), { recursive: true });
             await writeFile(md5File, apiMd5);
-            console.log(`Skipping ${productName} - ${filename}`);
-            return false;
+            this.options.logger(`Skipping ${productName} - ${filename}`);
+            return 'skipped';
           }
         }
-        console.log(`Checksum mismatch: ${filename}, re-downloading`);
-        const oldDir = path.join(dir, 'old');
+        this.options.logger(`Checksum mismatch: ${filename}, re-downloading`);
+        const oldDir = path.join(
+          this.outputDir,
+          '.data',
+          path.relative(this.outputDir, dir),
+          'old',
+        );
         await mkdir(oldDir, { recursive: true });
         const stamp = new Date().toISOString().split('T')[0];
         await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
       } else {
-        console.log(`Skipping ${productName} - ${filename}`);
-        return false;
+        this.options.logger(`Skipping ${productName} - ${filename}`);
+        return 'skipped';
       }
     }
 
     await mkdir(dir, { recursive: true });
 
     try {
-      console.log(`Downloading ${this.name} / ${productName} - ${filename}`);
+      this.options.logger(`Downloading ${this.name} / ${productName} - ${filename}`);
       await streamToFile(item.url.web, outFile, this.options.cookie);
-      console.log(`Downloaded ${filename}`);
+      this.options.logger(`Downloaded ${filename}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Download failed: ${productName} - ${filename}: ${msg}`);
+      this.options.logger(`Download failed: ${productName} - ${filename}: ${msg}`);
       await appendFile(
-        path.join(this.outputDir, 'errors.txt'),
+        path.join(this.outputDir, '.data', 'errors.txt'),
         `Cannot download: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
       );
-      return false;
+      return 'error';
     }
 
-    const apiMd5 = item.md5 || null;
+    const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
-      await writeFile(withMd5Suffix(outFile), computed);
-      if (computed !== apiMd5) {
-        console.log(`MD5 mismatch after download: ${filename}`);
+      if (computed === apiMd5) {
+        const md5Out = sidecarPath(this.outputDir, outFile);
+        await mkdir(path.dirname(md5Out), { recursive: true });
+        await writeFile(md5Out, apiMd5);
+      } else {
+        this.options.logger(`MD5 mismatch after download: ${filename}`);
       }
     }
 
-    return true;
+    return 'downloaded';
   }
 
   private shouldDownloadExt(filename: string): boolean {
@@ -157,6 +211,15 @@ export class Bundle {
     if (this.options.extInclude.length > 0) return this.options.extInclude.includes(ext);
     if (this.options.extExclude.length > 0) return !this.options.extExclude.includes(ext);
     return true;
+  }
+}
+
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
   }
 }
 
@@ -168,7 +231,9 @@ function filenameFromUrl(url: string): string {
   }
 }
 
-function withMd5Suffix(filePath: string): string {
-  const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + '.md5' : filePath + '.md5';
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = path.relative(outputDir, filePath);
+  const ext = path.extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return path.join(outputDir, '.data', base + '.md5');
 }

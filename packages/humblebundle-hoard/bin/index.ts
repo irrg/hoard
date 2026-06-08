@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { intro, text, password, outro, isCancel, cancel } from '@clack/prompts';
+import { intro, password, outro, isCancel, cancel } from '@clack/prompts';
+import cliProgress from 'cli-progress';
 
 import { Library } from '../src/index.js';
 
@@ -50,6 +54,16 @@ if (args['ext-include'] && args['ext-exclude']) {
 let cookie = args.key ?? '';
 
 if (!cookie) {
+  try {
+    const raw = await readFile(join(homedir(), '.hoard', 'config.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as Record<string, unknown>;
+    cookie = (cfg['HOARD_HUMBLEBUNDLE_SESSION'] as string) ?? '';
+  } catch {
+    // no config
+  }
+}
+
+if (!cookie) {
   intro('humblebundle-hoard');
 
   const val = await password({ message: 'Humble Bundle session cookie (_simpleauth_sess):' });
@@ -74,6 +88,8 @@ function parseExtList(val?: string): string[] {
     .filter(Boolean);
 }
 
+let bar: cliProgress.SingleBar | null = null;
+
 const lib = new Library({
   cookie,
   outputDir: args.output ?? 'downloads',
@@ -83,9 +99,12 @@ const lib = new Library({
   extExclude: parseExtList(args['ext-exclude']),
   dryRun: args['dry-run'] ?? false,
   filters: args.filter ?? [],
+  logger: () => {},
+  onProgress: (done, total, downloaded) => bar?.update(done, { downloaded }),
 });
 
 if (args.bundles) {
+  process.stdout.write('Loading orders...\n');
   await lib.loadOrders();
   if (lib.bundles.length === 0) {
     console.log('No orders found.');
@@ -98,13 +117,29 @@ if (args.bundles) {
 }
 
 if (args.bundle != null) {
+  process.stdout.write('Loading order...\n');
   await lib.loadOrder(args.bundle);
-  await lib.downloadLibrary();
-  outro('Done.');
+  bar = new cliProgress.SingleBar(barOptions(), cliProgress.Presets.shades_classic);
+  bar.start(lib.bundles.length, 0, { downloaded: 0 });
+  const result = await lib.downloadLibrary();
+  bar.stop();
+  outro(`Downloaded ${result.downloaded} files, ${result.errors} errors`);
   process.exit(0);
 }
 
+process.stdout.write('Loading orders...\n');
 await lib.loadOrders();
-await lib.downloadLibrary();
+bar = new cliProgress.SingleBar(barOptions(), cliProgress.Presets.shades_classic);
+bar.start(lib.bundles.length, 0, { downloaded: 0 });
+const result = await lib.downloadLibrary();
+bar.stop();
+outro(`Downloaded ${result.downloaded} files, ${result.errors} errors`);
 
-outro('Done.');
+function barOptions(): cliProgress.Options {
+  return {
+    format: 'Downloading |{bar}| {value}/{total} ({downloaded} new)',
+    barCompleteChar: '█',
+    barIncompleteChar: '░',
+    hideCursor: true,
+  };
+}
