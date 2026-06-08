@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "esModuleInterop": true
   },
-  "include": ["src/**/*", "bin/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

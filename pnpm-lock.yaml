@@ -8,34 +8,6 @@ importers:
 
   .:
     devDependencies:
-      husky:
-        specifier: ^9.0.0
-        version: 9.1.7
-
-  apps/hoard:
-    dependencies:
-      '@clack/prompts':
-        specifier: ^0.9.0
-        version: 0.9.1
-      '@irrg/bundleofholding-hoard':
-        specifier: file:../../../bundleofholding-hoard
-        version: file:../bundleofholding-hoard
-      '@irrg/drivethru-hoard':
-        specifier: file:../../../drivethru-hoard
-        version: file:../drivethru-hoard
-      '@irrg/humblebundle-hoard':
-        specifier: file:../../../humblebundle-hoard
-        version: file:../humblebundle-hoard
-      '@irrg/itchio-hoard':
-        specifier: file:../../../itchio-hoard
-        version: file:../itchio-hoard
-      cli-progress:
-        specifier: ^3.12.0
-        version: 3.12.0
-    devDependencies:
-      '@types/cli-progress':
-        specifier: ^3.11.0
-        version: 3.11.6
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.19
@@ -48,15 +20,52 @@ importers:
       oxlint:
         specifier: ^1.68.0
         version: 1.68.0
-      tsx:
-        specifier: ^4.19.0
-        version: 4.22.4
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^4.1.8
         version: 4.1.8(@types/node@22.19.19)(vite@8.0.16(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))
+
+  apps/hoard:
+    dependencies:
+      '@clack/prompts':
+        specifier: ^0.9.0
+        version: 0.9.1
+      '@irrg/bundleofholding-hoard':
+        specifier: workspace:*
+        version: link:../../packages/bundleofholding-hoard
+      '@irrg/drivethru-hoard':
+        specifier: workspace:*
+        version: link:../../packages/drivethru-hoard
+      '@irrg/humblebundle-hoard':
+        specifier: workspace:*
+        version: link:../../packages/humblebundle-hoard
+      '@irrg/itchio-hoard':
+        specifier: workspace:*
+        version: link:../../packages/itchio-hoard
+      cli-progress:
+        specifier: ^3.12.0
+        version: 3.12.0
+    devDependencies:
+      '@types/cli-progress':
+        specifier: ^3.11.0
+        version: 3.11.6
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.4
+
+  packages/bundleofholding-hoard:
+    dependencies:
+      node-html-parser:
+        specifier: ^7.0.0
+        version: 7.1.0
+
+  packages/drivethru-hoard: {}
+
+  packages/humblebundle-hoard: {}
+
+  packages/itchio-hoard: {}
 
 packages:
 
@@ -230,22 +239,6 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
-
-  '@irrg/bundleofholding-hoard@file:../bundleofholding-hoard':
-    resolution: {directory: ../bundleofholding-hoard, type: directory}
-    hasBin: true
-
-  '@irrg/drivethru-hoard@file:../drivethru-hoard':
-    resolution: {directory: ../drivethru-hoard, type: directory}
-    hasBin: true
-
-  '@irrg/humblebundle-hoard@file:../humblebundle-hoard':
-    resolution: {directory: ../humblebundle-hoard, type: directory}
-    hasBin: true
-
-  '@irrg/itchio-hoard@file:../itchio-hoard':
-    resolution: {directory: ../itchio-hoard, type: directory}
-    hasBin: true
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
@@ -1137,27 +1130,6 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.0':
     optional: true
-
-  '@irrg/bundleofholding-hoard@file:../bundleofholding-hoard':
-    dependencies:
-      '@clack/prompts': 0.9.1
-      cli-progress: 3.12.0
-      node-html-parser: 7.1.0
-
-  '@irrg/drivethru-hoard@file:../drivethru-hoard':
-    dependencies:
-      '@clack/prompts': 0.9.1
-      cli-progress: 3.12.0
-
-  '@irrg/humblebundle-hoard@file:../humblebundle-hoard':
-    dependencies:
-      '@clack/prompts': 0.9.1
-      cli-progress: 3.12.0
-
-  '@irrg/itchio-hoard@file:../itchio-hoard':
-    dependencies:
-      '@clack/prompts': 0.9.1
-      cli-progress: 3.12.0
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 

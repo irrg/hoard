@@ -24,20 +24,14 @@
   "dependencies": {
     "@clack/prompts": "^0.9.0",
     "cli-progress": "^3.12.0",
-    "@irrg/bundleofholding-hoard": "file:../../../bundleofholding-hoard",
-    "@irrg/drivethru-hoard": "file:../../../drivethru-hoard",
-    "@irrg/humblebundle-hoard": "file:../../../humblebundle-hoard",
-    "@irrg/itchio-hoard": "file:../../../itchio-hoard"
+    "@irrg/bundleofholding-hoard": "workspace:*",
+    "@irrg/drivethru-hoard": "workspace:*",
+    "@irrg/humblebundle-hoard": "workspace:*",
+    "@irrg/itchio-hoard": "workspace:*"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.0",
-    "@types/node": "^22.0.0",
-    "oxfmt": "^0.53.0",
-    "oxlint": "^1.68.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.8",
-    "husky": "^9.0.0"
+    "tsx": "^4.19.0"
   },
   "publishConfig": {
     "access": "public"

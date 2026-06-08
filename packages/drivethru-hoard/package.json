@@ -11,9 +11,6 @@
       "types": "./dist/src/index.d.ts"
     }
   },
-  "bin": {
-    "drivethru-hoard": "./dist/bin/index.js"
-  },
   "files": [
     "dist",
     "README.md",
@@ -24,32 +21,11 @@
     "prepublishOnly": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "oxlint src tests bin",
-    "fmt": "oxfmt src tests bin",
-    "fmt:check": "oxfmt --check src tests bin",
-    "drivethru-hoard": "node --import tsx/esm bin/index.ts",
-    "prepare": "husky"
-  },
-  "dependencies": {
-    "@clack/prompts": "^0.9.0",
-    "cli-progress": "^3.12.0"
-  },
-  "devDependencies": {
-    "@types/cli-progress": "^3.11.6",
-    "@types/node": "^22.0.0",
-    "oxfmt": "^0.53.0",
-    "oxlint": "^1.68.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.8",
-    "husky": "^9.0.0"
+    "lint": "oxlint src tests",
+    "fmt": "oxfmt src tests",
+    "fmt:check": "oxfmt --check src tests"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
