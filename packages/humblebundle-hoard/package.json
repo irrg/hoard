@@ -2,7 +2,7 @@
   "name": "@irrg/humblebundle-hoard",
   "version": "0.2.0",
   "license": "BSD-3-Clause",
-  "homepage": "https://github.com/irrg/hoard/tree/main/packages/humblebundle-hoard",
+  "homepage": "https://github.com/irrg/hoard",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
