@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { cmdAuth } from '../src/auth.js';
@@ -58,6 +60,16 @@ function parseStorefronts(names: string[]): Storefront[] {
   return names as Storefront[];
 }
 
+function workspaceRoot(): string {
+  let dir = process.cwd();
+  while (true) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return process.cwd();
+    dir = parent;
+  }
+}
+
 switch (command) {
   case 'auth': {
     await cmdAuth(parseStorefronts(rest));
@@ -84,7 +96,10 @@ switch (command) {
       process.exit(1);
     }
 
-    const outputDir = args.output ?? config.HOARD_OUTPUT_DIR;
+    const rawOutputDir = args.output ?? config.HOARD_OUTPUT_DIR;
+    const outputDir = isAbsolute(rawOutputDir)
+      ? rawOutputDir
+      : resolve(workspaceRoot(), rawOutputDir);
     await cmdSync(
       parseStorefronts(rest.length > 0 ? rest : [...STOREFRONTS]),
       config,
