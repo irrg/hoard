@@ -1,0 +1,51 @@
+{
+  "name": "@irrg/humblebundle-hoard",
+  "version": "0.1.0",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
+    }
+  },
+  "bin": {
+    "humblebundle-hoard": "./dist/bin/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src tests bin",
+    "fmt": "oxfmt src tests bin",
+    "fmt:check": "oxfmt --check src tests bin",
+    "humblebundle-hoard": "node --import tsx/esm bin/index.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
