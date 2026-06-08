@@ -33,12 +33,18 @@ export async function fetchBundlePage(key: string, cookie?: string): Promise<Bun
   const titleEl = root.querySelector('section#bundle h2.title');
   const title = titleEl?.text.trim() ?? key;
 
-  const anchors = root.querySelectorAll('div.dl-link span.download a');
-  const files: DownloadFile[] = anchors.map((a) => ({
-    filename: a.getAttribute('download') ?? a.text.trim(),
-    url: BASE_URL + (a.getAttribute('href') ?? ''),
-    md5: a.getAttribute('data-hash-md5') ?? '',
-  }));
+  const seen = new Set<string>();
+  const files: DownloadFile[] = [];
+  for (const a of root.querySelectorAll('a[href*="/download/file/"]')) {
+    const href = a.getAttribute('href') ?? '';
+    if (seen.has(href)) continue;
+    seen.add(href);
+    files.push({
+      filename: a.getAttribute('download') ?? a.text.trim(),
+      url: BASE_URL + href,
+      md5: (a.getAttribute('data-hash-md5') ?? '').toLowerCase(),
+    });
+  }
 
   return { title, files };
 }
