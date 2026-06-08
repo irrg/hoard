@@ -2,6 +2,7 @@
   "name": "@irrg/bundleofholding-hoard",
   "version": "0.2.0",
   "license": "BSD-3-Clause",
+  "homepage": "https://github.com/irrg/hoard/tree/main/packages/bundleofholding-hoard",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

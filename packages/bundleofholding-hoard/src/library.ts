@@ -190,10 +190,9 @@ export class Library {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
-      await appendFile(
-        join(this.outputDir, '.data', 'errors.txt'),
-        `${bundleName} - ${file.filename}: ${msg}\n`,
-      );
+      const dataDir = join(this.outputDir, '.data');
+      await mkdir(dataDir, { recursive: true });
+      await appendFile(join(dataDir, 'errors.txt'), `${bundleName} - ${file.filename}: ${msg}\n`);
       return 'error';
     }
   }

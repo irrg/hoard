@@ -2,6 +2,7 @@
   "name": "@irrg/hoard",
   "version": "0.1.0",
   "license": "BSD-3-Clause",
+  "homepage": "https://github.com/irrg/hoard",
   "type": "module",
   "bin": {
     "hoard": "./dist/bin/index.js"
