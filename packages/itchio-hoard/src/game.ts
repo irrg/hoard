@@ -290,8 +290,10 @@ export class Game {
     detail: string,
   ): Promise<void> {
     const safeUrl = requestUrl.replace(/api_key=[^&]+/, 'api_key=REDACTED');
+    const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
+    await mkdir(path.dirname(errorsFile), { recursive: true });
     await appendFile(
-      path.join(this.outputDir, '.data', 'errors.txt'),
+      errorsFile,
       [
         ` Cannot download game/asset: ${this.gameSlug}`,
         ` Publisher Name: ${this.publisherSlug}`,
