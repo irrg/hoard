@@ -4,12 +4,18 @@ const mockExistsSync = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockWriteFile = vi.hoisted(() => vi.fn());
 const mockMkdir = vi.hoisted(() => vi.fn());
+const mockChmod = vi.hoisted(() => vi.fn());
+const mockRename = vi.hoisted(() => vi.fn());
+const mockUnlink = vi.hoisted(() => vi.fn());
 
 vi.mock('node:fs', () => ({ existsSync: mockExistsSync }));
 vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,
   writeFile: mockWriteFile,
   mkdir: mockMkdir,
+  chmod: mockChmod,
+  rename: mockRename,
+  unlink: mockUnlink,
 }));
 
 import { isStorefront, STOREFRONTS, readConfig, writeConfig } from '../src/config.js';
@@ -33,6 +39,9 @@ describe('readConfig', () => {
     vi.clearAllMocks();
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
+    mockChmod.mockResolvedValue(undefined);
+    mockRename.mockResolvedValue(undefined);
+    mockUnlink.mockResolvedValue(undefined);
   });
 
   it('returns defaults when config file does not exist', async () => {
@@ -69,6 +78,9 @@ describe('writeConfig', () => {
     vi.clearAllMocks();
     mockMkdir.mockResolvedValue(undefined);
     mockWriteFile.mockResolvedValue(undefined);
+    mockChmod.mockResolvedValue(undefined);
+    mockRename.mockResolvedValue(undefined);
+    mockUnlink.mockResolvedValue(undefined);
   });
 
   it('creates the config directory and writes JSON', async () => {
@@ -84,7 +96,10 @@ describe('writeConfig', () => {
       HOARD_JOBS: 4,
     };
     await writeConfig(config);
-    expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('.hoard'), { recursive: true });
+    expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('.hoard'), {
+      recursive: true,
+      mode: 0o700,
+    });
     const written = mockWriteFile.mock.calls[0][1] as string;
     expect(JSON.parse(written).HOARD_ITCHIO_USERNAME).toBe('robb');
   });

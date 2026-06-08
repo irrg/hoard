@@ -8,9 +8,13 @@
     "fmt": "pnpm -r fmt",
     "fmt:check": "pnpm -r fmt:check",
     "hoard": "pnpm --filter @irrg/hoard hoard",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm -r build && changeset publish",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@types/node": "^22.0.0",
     "husky": "^9.0.0",
     "oxfmt": "^0.53.0",

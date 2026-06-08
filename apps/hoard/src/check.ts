@@ -5,23 +5,35 @@ import { loginAPI as itchioLogin } from '@irrg/itchio-hoard';
 
 import { type HoardConfig, STOREFRONTS, type Storefront } from './config.js';
 
-type CheckResult = { ok: true } | { ok: false; reason: string };
+type CheckResult = { ok: true } | { ok: 'skip' } | { ok: false; reason: string };
+
+function fmtError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as Error & { cause?: unknown }).cause;
+  if (cause == null) return e.message;
+  if (cause instanceof Error) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    const detail = cause.message || code || cause.name;
+    return `${e.message}: ${detail}`;
+  }
+  return `${e.message}: ${String(cause)}`;
+}
 
 async function checkItchio(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: 'skip' };
   }
   try {
     await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
     return { ok: true };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
 async function checkDrivethru(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: 'skip' };
   }
   try {
     const lib = new DrivethruLibrary({
@@ -37,13 +49,13 @@ async function checkDrivethru(config: HoardConfig): Promise<CheckResult> {
     await lib.authenticate();
     return { ok: true };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
 async function checkHumblebundle(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: 'skip' };
   }
   try {
     const r = await fetch('https://www.humblebundle.com/api/v1/user/order', {
@@ -52,19 +64,19 @@ async function checkHumblebundle(config: HoardConfig): Promise<CheckResult> {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return { ok: true };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
 async function checkBundleofholding(config: HoardConfig): Promise<CheckResult> {
   if (!config.HOARD_BUNDLEOFHOLDING_EMAIL || !config.HOARD_BUNDLEOFHOLDING_PASSWORD) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: 'skip' };
   }
   try {
     await bohLogin(config.HOARD_BUNDLEOFHOLDING_EMAIL, config.HOARD_BUNDLEOFHOLDING_PASSWORD);
     return { ok: true };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
@@ -78,15 +90,20 @@ const CHECKERS: Record<Storefront, (config: HoardConfig) => Promise<CheckResult>
 export async function cmdCheck(
   config: HoardConfig,
   storefronts: Storefront[] = [...STOREFRONTS],
-): Promise<void> {
+): Promise<boolean> {
+  let anyFailed = false;
   for (const sf of storefronts) {
     const s = spinner();
     s.start(sf);
     const result = await CHECKERS[sf](config);
-    if (result.ok) {
+    if (result.ok === true) {
       s.stop(`✓ ${sf}`);
+    } else if (result.ok === 'skip') {
+      s.stop(`- ${sf}: not configured`);
     } else {
       s.stop(`✗ ${sf}: ${result.reason}`);
+      anyFailed = true;
     }
   }
+  return !anyFailed;
 }

@@ -78,7 +78,8 @@ switch (command) {
 
   case 'check': {
     const config = await readConfig();
-    await cmdCheck(config, parseStorefronts(rest));
+    const ok = await cmdCheck(config, parseStorefronts(rest));
+    if (!ok) process.exit(1);
     break;
   }
 
@@ -100,13 +101,14 @@ switch (command) {
     const outputDir = isAbsolute(rawOutputDir)
       ? rawOutputDir
       : resolve(workspaceRoot(), rawOutputDir);
-    await cmdSync(
+    const ok = await cmdSync(
       parseStorefronts(rest.length > 0 ? rest : [...STOREFRONTS]),
       config,
       outputDir,
       jobs,
       args.deep ?? false,
     );
+    if (!ok) process.exit(1);
     break;
   }
 

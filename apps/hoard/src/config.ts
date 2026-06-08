@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -41,11 +41,23 @@ export async function readConfig(): Promise<HoardConfig> {
   if (!existsSync(CONFIG_PATH)) {
     return { ...DEFAULTS };
   }
+  await chmod(CONFIG_PATH, 0o600).catch(() => {});
   const raw = await readFile(CONFIG_PATH, 'utf-8');
   return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<HoardConfig>) };
 }
 
 export async function writeConfig(config: HoardConfig): Promise<void> {
-  await mkdir(CONFIG_DIR, { recursive: true });
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  await chmod(CONFIG_DIR, 0o700).catch(() => {});
+  const tmp = `${CONFIG_PATH}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(config, null, 2) + '\n', {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    await rename(tmp, CONFIG_PATH);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }

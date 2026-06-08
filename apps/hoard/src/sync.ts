@@ -10,7 +10,20 @@ import { type HoardConfig, type Storefront } from './config.js';
 
 type SyncResult =
   | { ok: true; total: number; downloaded: number; errors: number }
+  | { ok: 'skip' }
   | { ok: false; reason: string };
+
+function fmtError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as Error & { cause?: unknown }).cause;
+  if (cause == null) return e.message;
+  if (cause instanceof Error) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    const detail = cause.message || code || cause.name;
+    return `${e.message}: ${detail}`;
+  }
+  return `${e.message}: ${String(cause)}`;
+}
 
 const BAR_NAME_WIDTH = 16;
 
@@ -33,7 +46,7 @@ async function syncItchio(
   bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
-    return { ok: false, reason: 'not configured' };
+    return { ok: 'skip' };
   }
   try {
     const token = await itchioLogin(config.HOARD_ITCHIO_USERNAME, config.HOARD_ITCHIO_PASSWORD);
@@ -59,7 +72,7 @@ async function syncItchio(
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
@@ -70,7 +83,7 @@ async function syncDrivethru(
   deep: boolean,
   bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
-  if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: false, reason: 'not configured' };
+  if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: 'skip' };
   try {
     let lastTotal = 0;
     const lib = new DrivethruLibrary({
@@ -96,7 +109,7 @@ async function syncDrivethru(
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
@@ -107,7 +120,7 @@ async function syncHumblebundle(
   deep: boolean,
   bar: cliProgress.SingleBar,
 ): Promise<SyncResult> {
-  if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: false, reason: 'not configured' };
+  if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: 'skip' };
   try {
     let lastTotal = 0;
     const lib = new HumbleLibrary({
@@ -132,7 +145,7 @@ async function syncHumblebundle(
     const { downloaded, errors } = await lib.downloadLibrary();
     return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
@@ -146,7 +159,7 @@ async function syncBundleofholding(
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
     !!config.HOARD_BUNDLEOFHOLDING_EMAIL && !!config.HOARD_BUNDLEOFHOLDING_PASSWORD;
-  if (!hasCookie && !hasCredentials) return { ok: false, reason: 'not configured' };
+  if (!hasCookie && !hasCredentials) return { ok: 'skip' };
   try {
     let cookie = config.HOARD_BUNDLEOFHOLDING_COOKIE;
     if (!cookie) {
@@ -181,7 +194,7 @@ async function syncBundleofholding(
     const { downloaded, errors } = await lib.downloadBundles(bundles);
     return { ok: true, total: lastTotal, downloaded, errors };
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, reason: fmtError(e) };
   }
 }
 
@@ -191,7 +204,7 @@ export async function cmdSync(
   outputDir: string,
   jobs: number,
   deep = false,
-): Promise<void> {
+): Promise<boolean> {
   const multiBar = new cliProgress.MultiBar(
     {
       format: '{name} |{bar}| {status}',
@@ -228,15 +241,18 @@ export async function cmdSync(
       }
       bar.setTotal(1);
       bar.update(1, {
-        status: result.ok
-          ? [
-              `✓ ${result.total} total`,
-              `${result.downloaded} new`,
-              result.errors > 0 ? `${result.errors} errors` : '',
-            ]
-              .filter(Boolean)
-              .join(', ')
-          : `✗ ${result.reason}`,
+        status:
+          result.ok === true
+            ? [
+                `✓ ${result.total} total`,
+                `${result.downloaded} new`,
+                result.errors > 0 ? `${result.errors} errors` : '',
+              ]
+                .filter(Boolean)
+                .join(', ')
+            : result.ok === 'skip'
+              ? '- not configured'
+              : `✗ ${result.reason}`,
       });
       return result;
     }),
@@ -244,10 +260,12 @@ export async function cmdSync(
 
   multiBar.stop();
 
-  const totalItems = results.reduce((s, r) => s + (r.ok ? r.total : 0), 0);
-  const totalNew = results.reduce((s, r) => s + (r.ok ? r.downloaded : 0), 0);
-  const totalErrors = results.reduce((s, r) => s + (r.ok ? r.errors : 0), 0);
+  const totalItems = results.reduce((s, r) => s + (r.ok === true ? r.total : 0), 0);
+  const totalNew = results.reduce((s, r) => s + (r.ok === true ? r.downloaded : 0), 0);
+  const totalErrors = results.reduce((s, r) => s + (r.ok === true ? r.errors : 0), 0);
+  const anyFailed = results.some((r) => r.ok === false);
   const summary = [`${totalItems} total`, `${totalNew} new`];
   if (totalErrors > 0) summary.push(`${totalErrors} errors`);
   console.log(`\n${summary.join(', ')}`);
+  return !anyFailed && totalErrors === 0;
 }
