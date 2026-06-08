@@ -277,12 +277,11 @@ export class Game {
 
     if (md5Hash) {
       const computed = await md5sum(outFile);
+      const md5File = sidecarPath(this.outputDir, outFile);
+      await mkdir(path.dirname(md5File), { recursive: true });
+      await writeFile(md5File, md5Hash);
       if (computed !== md5Hash) {
         this.logger(`Failed to verify ${filename}`);
-      } else {
-        const md5File = sidecarPath(this.outputDir, outFile);
-        await mkdir(path.dirname(md5File), { recursive: true });
-        await writeFile(md5File, md5Hash);
       }
     }
 

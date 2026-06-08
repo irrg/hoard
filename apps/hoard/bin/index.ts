@@ -16,6 +16,7 @@ const { values: args, positionals } = parseArgs({
     jobs: { type: 'string', short: 'j' },
     output: { type: 'string', short: 'o' },
     deep: { type: 'boolean' },
+    verbose: { type: 'boolean', short: 'v' },
     help: { type: 'boolean', short: 'h' },
   },
   allowPositionals: true,
@@ -36,6 +37,7 @@ Options:
   -j, --jobs <n>      Concurrent downloads (overrides config)
   -o, --output <dir>  Output directory (overrides config)
       --deep          Per-file md5 verification (default: skip if folder exists)
+  -v, --verbose       Print per-file log lines, no progress bars
   -h, --help          Show this help`;
 
 if (args.help && positionals.length === 0) {
@@ -107,6 +109,7 @@ switch (command) {
       outputDir,
       jobs,
       args.deep ?? false,
+      args.verbose ?? false,
     );
     if (!ok) process.exit(1);
     break;

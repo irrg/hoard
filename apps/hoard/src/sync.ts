@@ -44,6 +44,7 @@ async function syncItchio(
   jobs: number,
   deep: boolean,
   bar: cliProgress.SingleBar,
+  logger: (msg: string) => void,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
     return { ok: 'skip' };
@@ -58,7 +59,7 @@ async function syncItchio(
       join(outputDir, 'itchio'),
       false,
       [],
-      () => {},
+      logger,
       (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -82,6 +83,7 @@ async function syncDrivethru(
   jobs: number,
   deep: boolean,
   bar: cliProgress.SingleBar,
+  logger: (msg: string) => void,
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: 'skip' };
   try {
@@ -95,7 +97,7 @@ async function syncDrivethru(
       dryRun: false,
       deep,
       filters: [],
-      logger: () => {},
+      logger,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -119,6 +121,7 @@ async function syncHumblebundle(
   jobs: number,
   deep: boolean,
   bar: cliProgress.SingleBar,
+  logger: (msg: string) => void,
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: 'skip' };
   try {
@@ -132,7 +135,7 @@ async function syncHumblebundle(
       dryRun: false,
       deep,
       filters: [],
-      logger: () => {},
+      logger,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -155,6 +158,7 @@ async function syncBundleofholding(
   jobs: number,
   deep: boolean,
   bar: cliProgress.SingleBar,
+  logger: (msg: string) => void,
 ): Promise<SyncResult> {
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
@@ -177,7 +181,7 @@ async function syncBundleofholding(
       deep,
       cookie,
       filters: [],
-      logger: () => {},
+      logger,
       onLoadPage: (loaded, total, filesFound) => {
         bar.update(0, { status: `loading ${loaded}/${total}, ${filesFound} files` });
       },
@@ -204,61 +208,77 @@ export async function cmdSync(
   outputDir: string,
   jobs: number,
   deep = false,
+  verbose = false,
 ): Promise<boolean> {
-  const multiBar = new cliProgress.MultiBar(
-    {
-      format: '{name} |{bar}| {status}',
-      barCompleteChar: '█',
-      barIncompleteChar: '░',
-      hideCursor: true,
-      clearOnComplete: false,
-      stopOnComplete: false,
-    },
-    cliProgress.Presets.shades_classic,
-  );
+  function makeLogger(sf: Storefront): (msg: string) => void {
+    return verbose ? (msg) => console.log(`[${sf}] ${msg}`) : () => {};
+  }
+
+  const multiBar = verbose
+    ? null
+    : new cliProgress.MultiBar(
+        {
+          format: '{name} |{bar}| {status}',
+          barCompleteChar: '█',
+          barIncompleteChar: '░',
+          hideCursor: true,
+          clearOnComplete: false,
+          stopOnComplete: false,
+        },
+        cliProgress.Presets.shades_classic,
+      );
+
+  const nullBar = { update: () => {}, setTotal: () => {} } as unknown as cliProgress.SingleBar;
 
   const bars = new Map(
-    storefronts.map((sf) => [sf, multiBar.create(1, 0, { name: barName(sf), status: '...' })]),
+    storefronts.map((sf) => [
+      sf,
+      multiBar ? multiBar.create(1, 0, { name: barName(sf), status: '...' }) : nullBar,
+    ]),
   );
 
   const results = await Promise.all(
     storefronts.map(async (sf) => {
       const bar = bars.get(sf)!;
+      const logger = makeLogger(sf);
       let result: SyncResult;
       switch (sf) {
         case 'itchio':
-          result = await syncItchio(config, outputDir, jobs, deep, bar);
+          result = await syncItchio(config, outputDir, jobs, deep, bar, logger);
           break;
         case 'drivethru':
-          result = await syncDrivethru(config, outputDir, jobs, deep, bar);
+          result = await syncDrivethru(config, outputDir, jobs, deep, bar, logger);
           break;
         case 'humblebundle':
-          result = await syncHumblebundle(config, outputDir, jobs, deep, bar);
+          result = await syncHumblebundle(config, outputDir, jobs, deep, bar, logger);
           break;
         case 'bundleofholding':
-          result = await syncBundleofholding(config, outputDir, jobs, deep, bar);
+          result = await syncBundleofholding(config, outputDir, jobs, deep, bar, logger);
           break;
       }
-      bar.setTotal(1);
-      bar.update(1, {
-        status:
-          result.ok === true
-            ? [
-                `✓ ${result.total} total`,
-                `${result.downloaded} new`,
-                result.errors > 0 ? `${result.errors} errors` : '',
-              ]
-                .filter(Boolean)
-                .join(', ')
-            : result.ok === 'skip'
-              ? '- not configured'
-              : `✗ ${result.reason}`,
-      });
+      const statusMsg =
+        result.ok === true
+          ? [
+              `✓ ${result.total} total`,
+              `${result.downloaded} new`,
+              result.errors > 0 ? `${result.errors} errors` : '',
+            ]
+              .filter(Boolean)
+              .join(', ')
+          : result.ok === 'skip'
+            ? '- not configured'
+            : `✗ ${result.reason}`;
+      if (verbose) {
+        console.log(`[${sf}] ${statusMsg}`);
+      } else {
+        bar.setTotal(1);
+        bar.update(1, { status: statusMsg });
+      }
       return result;
     }),
   );
 
-  multiBar.stop();
+  multiBar?.stop();
 
   const totalItems = results.reduce((s, r) => s + (r.ok === true ? r.total : 0), 0);
   const totalNew = results.reduce((s, r) => s + (r.ok === true ? r.downloaded : 0), 0);

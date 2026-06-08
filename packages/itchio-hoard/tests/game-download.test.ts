@@ -198,7 +198,7 @@ describe('Game.doDownload', () => {
     const logSpy = vi.fn();
     await makeGame(logSpy).doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok');
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
-    expect(writeFile).not.toHaveBeenCalledWith(expect.stringContaining('.md5'), expect.anything());
+    expect(writeFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
   });
 
   it('skips when file exists and has no md5_hash', async () => {

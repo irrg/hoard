@@ -154,11 +154,10 @@ export class Product {
 
     if (apiChecksum) {
       const computed = await md5sum(outFile);
-      if (computed === apiChecksum) {
-        const md5File = sidecarPath(this.outputDir, outFile);
-        await mkdir(dirname(md5File), { recursive: true });
-        await writeFile(md5File, apiChecksum);
-      } else {
+      const md5File = sidecarPath(this.outputDir, outFile);
+      await mkdir(dirname(md5File), { recursive: true });
+      await writeFile(md5File, apiChecksum);
+      if (computed !== apiChecksum) {
         this.options.logger(`Failed to verify ${filename}`);
       }
     }

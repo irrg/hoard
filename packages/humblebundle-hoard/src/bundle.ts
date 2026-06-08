@@ -184,8 +184,10 @@ export class Bundle {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.options.logger(`Download failed: ${productName} - ${filename}: ${msg}`);
+      const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
+      await mkdir(path.dirname(errorsFile), { recursive: true });
       await appendFile(
-        path.join(this.outputDir, '.data', 'errors.txt'),
+        errorsFile,
         `Cannot download: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n  ${msg}\n---\n`,
       );
       return 'error';
@@ -194,11 +196,10 @@ export class Bundle {
     const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
-      if (computed === apiMd5) {
-        const md5Out = sidecarPath(this.outputDir, outFile);
-        await mkdir(path.dirname(md5Out), { recursive: true });
-        await writeFile(md5Out, apiMd5);
-      } else {
+      const md5Out = sidecarPath(this.outputDir, outFile);
+      await mkdir(path.dirname(md5Out), { recursive: true });
+      await writeFile(md5Out, apiMd5);
+      if (computed !== apiMd5) {
         this.options.logger(`MD5 mismatch after download: ${filename}`);
       }
     }

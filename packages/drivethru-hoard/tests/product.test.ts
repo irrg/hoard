@@ -313,7 +313,7 @@ describe('Product.doDownload', () => {
     expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
-  it('does not write md5 sidecar when computed hash does not match api checksum', async () => {
+  it('still writes md5 sidecar when computed hash does not match api checksum', async () => {
     existsSyncMock.mockReturnValue(false);
     md5sumMock.mockResolvedValue('wrong-hash');
     const item = makeItem({
@@ -321,10 +321,7 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     await p.doDownload(item, 'tok');
-    expect(writeFileMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('.md5'),
-      expect.any(String),
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
   it('does not write md5 sidecar when no checksum is available', async () => {
