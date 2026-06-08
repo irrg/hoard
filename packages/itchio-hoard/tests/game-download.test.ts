@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('fs', () => ({ existsSync: vi.fn() }));
+vi.mock('fs', () => ({ existsSync: vi.fn(), readdirSync: vi.fn() }));
 
 vi.mock('fs/promises', () => ({
   readFile: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock('../src/utils.js', async (importOriginal) => {
   return { ...actual, download: vi.fn(), md5sum: vi.fn() };
 });
 
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { readFile, writeFile, mkdir, rename, appendFile } from 'fs/promises';
 
 import { Game } from '../src/game.js';
@@ -33,8 +33,8 @@ const gameData = {
   },
 };
 
-function makeGame() {
-  return new Game(gameData);
+function makeGame(logger?: (msg: string) => void, deep = false) {
+  return new Game(gameData, false, 'downloads', false, logger ?? (() => {}), deep);
 }
 
 function makeUpload(overrides: Partial<Upload> = {}): Upload {
@@ -92,6 +92,54 @@ describe('Game.loadDownloads', () => {
   });
 });
 
+describe('Game.download (shallow mode)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
+  });
+
+  it('skips immediately when dir has files and deep is false', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readdirSync).mockReturnValue(['game.zip'] as unknown as ReturnType<
+      typeof readdirSync
+    >);
+    const result = await makeGame().download('tok');
+    expect(result).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when dir has files but deep is true', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readdirSync).mockReturnValue(['game.zip'] as unknown as ReturnType<
+      typeof readdirSync
+    >);
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    const result = await makeGame(undefined, true).download('tok');
+    expect(result).toBe(false); // no uploads, so still false — but API was called
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('proceeds when dir is empty even in shallow mode', async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    await makeGame().download('tok');
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('proceeds when dir does not exist in shallow mode', async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    await makeGame().download('tok');
+    expect(fetchMock).toHaveBeenCalled();
+  });
+});
+
 describe('Game.doDownload', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -100,6 +148,7 @@ describe('Game.doDownload', () => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
     vi.mocked(mkdir).mockResolvedValue(undefined);
     vi.mocked(writeFile).mockResolvedValue(undefined);
     vi.mocked(rename).mockResolvedValue(undefined);
@@ -120,6 +169,7 @@ describe('Game.doDownload', () => {
       expect.any(String),
       'Test Game',
       'game.zip',
+      expect.any(Function),
     );
   });
 
@@ -131,6 +181,7 @@ describe('Game.doDownload', () => {
       expect.any(String),
       expect.any(String),
       expect.any(String),
+      expect.any(Function),
     );
   });
 
@@ -144,11 +195,10 @@ describe('Game.doDownload', () => {
   it('logs failure but does not throw when MD5 verification fails post-download', async () => {
     mockSession(fetchMock);
     vi.mocked(md5sum).mockResolvedValue('wrong-hash');
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await makeGame().doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok');
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
+    const logSpy = vi.fn();
+    await makeGame(logSpy).doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok');
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
     expect(writeFile).not.toHaveBeenCalledWith(expect.stringContaining('.md5'), expect.anything());
-    consoleSpy.mockRestore();
   });
 
   it('skips when file exists and has no md5_hash', async () => {
@@ -210,7 +260,7 @@ describe('Game.doDownload', () => {
     vi.mocked(download).mockRejectedValue(new NoDownloadError('no headers'));
     await makeGame().doDownload(makeUpload(), 'secret-key');
     expect(appendFile).toHaveBeenCalledWith(
-      'downloads/errors.txt',
+      'downloads/.data/errors.txt',
       expect.stringContaining('api_key=REDACTED'),
     );
     const logged = vi.mocked(appendFile).mock.calls[0][1] as string;
@@ -222,7 +272,7 @@ describe('Game.doDownload', () => {
     vi.mocked(download).mockRejectedValue(new Error('network failure'));
     await makeGame().doDownload(makeUpload(), 'tok');
     expect(appendFile).toHaveBeenCalledWith(
-      'downloads/errors.txt',
+      'downloads/.data/errors.txt',
       expect.stringContaining('game.zip'),
     );
   });

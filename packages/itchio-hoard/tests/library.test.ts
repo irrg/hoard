@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn(),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+}));
+
 import type { Game } from '../src/game.js';
 import { Library } from '../src/library.js';
 import type { UserProfile, Collection, BundleKey } from '../src/library.js';
@@ -114,6 +121,41 @@ describe('Library', () => {
       expect(lib.games).toHaveLength(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it('loads from cache when page 1 sentinel matches', async () => {
+      const { existsSync } = await import('fs');
+      const { readFile } = await import('fs/promises');
+      vi.mocked(existsSync).mockReturnValueOnce(true);
+      const cached = [gameFixture(1), gameFixture(2), gameFixture(3)];
+      vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify(cached) as unknown as Buffer);
+      fetchMock.mockResolvedValueOnce(
+        mockResponse({ owned_keys: [gameFixture(1), gameFixture(2)] }),
+      );
+
+      const lib = new Library('tok');
+      await lib.loadOwnedGames();
+
+      expect(lib.games).toHaveLength(3);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // only the sentinel fetch
+    });
+
+    it('refetches all pages when sentinel does not match cache', async () => {
+      const { existsSync } = await import('fs');
+      const { readFile } = await import('fs/promises');
+      vi.mocked(existsSync).mockReturnValueOnce(true);
+      const cached = [gameFixture(99), gameFixture(2)]; // different first entry
+      vi.mocked(readFile).mockResolvedValueOnce(JSON.stringify(cached) as unknown as Buffer);
+      fetchMock
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [gameFixture(1), gameFixture(2)] }))
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [gameFixture(3)] }))
+        .mockResolvedValueOnce(mockResponse({ owned_keys: [] }));
+
+      const lib = new Library('tok');
+      await lib.loadOwnedGames();
+
+      expect(lib.games).toHaveLength(3);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
   });
 
   describe('downloadLibrary', () => {
@@ -122,7 +164,7 @@ describe('Library', () => {
         name: 'Fake Game',
         download:
           fail === 'none'
-            ? vi.fn().mockResolvedValue(undefined)
+            ? vi.fn().mockResolvedValue(true)
             : fail === 'download'
               ? vi.fn().mockRejectedValue(new NoDownloadError('nope'))
               : vi.fn().mockRejectedValue(new Error('unexpected')),
@@ -130,21 +172,19 @@ describe('Library', () => {
     }
 
     it('downloads all games and logs completion', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const lib = new Library('tok');
       lib.games = [fakeGame(), fakeGame()];
-      await lib.downloadLibrary();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Downloaded 2 Games'));
-      consoleSpy.mockRestore();
+      const result = await lib.downloadLibrary();
+      expect(result.downloaded).toBe(2);
+      expect(result.errors).toBe(0);
     });
 
     it('counts NoDownloadError as an error, not a crash', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       const lib = new Library('tok');
       lib.games = [fakeGame(), fakeGame('download')];
-      await lib.downloadLibrary();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('1 Errors'));
-      consoleSpy.mockRestore();
+      const result = await lib.downloadLibrary();
+      expect(result.downloaded).toBe(1);
+      expect(result.errors).toBe(1);
     });
 
     it('propagates unexpected errors', async () => {

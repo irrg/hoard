@@ -1,3 +1,7 @@
+import { existsSync } from 'fs';
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import { dirname, join } from 'path';
+
 import { Game, GameData, OwnedKeyData } from './game.js';
 import { NoDownloadError, fetchWithRetry, runConcurrently } from './utils.js';
 
@@ -33,6 +37,17 @@ export interface BundleKey {
 
 const MAX_JOBS = 8;
 
+export interface LibraryOptions {
+  jobs?: number;
+  humanFolders?: boolean;
+  outputDir?: string;
+  dryRun?: boolean;
+  filters?: string[];
+  logger?: (msg: string) => void;
+  onProgress?: (done: number, total: number, downloaded: number) => void;
+  deep?: boolean;
+}
+
 export class Library {
   token: string;
   games: Game[];
@@ -40,7 +55,10 @@ export class Library {
   humanFolders: boolean;
   outputDir: string;
   dryRun: boolean;
+  deep: boolean;
   filters: string[];
+  private logger: (msg: string) => void;
+  private onProgress?: (done: number, total: number, downloaded: number) => void;
 
   constructor(
     token: string,
@@ -49,6 +67,9 @@ export class Library {
     outputDir = 'downloads',
     dryRun = false,
     filters: string[] = [],
+    logger: (msg: string) => void = () => {},
+    onProgress?: (done: number, total: number, downloaded: number) => void,
+    deep = false,
   ) {
     this.token = token;
     this.games = [];
@@ -56,38 +77,91 @@ export class Library {
     this.humanFolders = humanFolders;
     this.outputDir = outputDir;
     this.dryRun = dryRun;
+    this.deep = deep;
     this.filters = filters.map((f) => f.toLowerCase());
+    this.logger = logger;
+    this.onProgress = onProgress;
   }
 
   async loadGamePage(page: number): Promise<number> {
-    console.log(`Loading page ${page}`);
+    this.logger(`Loading page ${page}`);
+    const keys = await this._fetchKeyPage(page);
+    for (const s of keys) {
+      this.games.push(
+        new Game(
+          s,
+          this.humanFolders,
+          this.outputDir,
+          this.dryRun,
+          this.logger,
+          this.deep ?? false,
+        ),
+      );
+    }
+    return keys.length;
+  }
+
+  private async _fetchKeyPage(page: number): Promise<OwnedKeyData[]> {
     const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
       headers: { Authorization: this.token },
     });
-
-    let j: { owned_keys?: OwnedKeyData[] };
     try {
-      j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
+      const j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
+      return Array.isArray(j.owned_keys) ? j.owned_keys : [];
     } catch {
-      console.log(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
-      return 0;
+      this.logger(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
+      return [];
     }
+  }
 
-    if (!Array.isArray(j.owned_keys) || j.owned_keys.length === 0) return 0;
-
-    for (const s of j.owned_keys) {
-      this.games.push(new Game(s, this.humanFolders, this.outputDir, this.dryRun));
-    }
-
-    return j.owned_keys.length;
+  private _makeGame(s: OwnedKeyData): Game {
+    return new Game(
+      s,
+      this.humanFolders,
+      this.outputDir,
+      this.dryRun,
+      this.logger,
+      this.deep ?? false,
+    );
   }
 
   async loadOwnedGames(): Promise<void> {
-    let page = 1;
+    const cacheFile = join(this.outputDir, '.data', 'owned-keys.json');
+
+    const page1 = await this._fetchKeyPage(1);
+    if (page1.length === 0) return;
+
+    if (!this.deep && existsSync(cacheFile)) {
+      try {
+        const cached = JSON.parse(await readFile(cacheFile, 'utf-8')) as OwnedKeyData[];
+        const sentinelIds = page1.map((k) => k.id).join(',');
+        const cachedHeadIds = cached
+          .slice(0, page1.length)
+          .map((k) => k.id)
+          .join(',');
+        if (sentinelIds === cachedHeadIds) {
+          for (const s of cached) this.games.push(this._makeGame(s));
+          return;
+        }
+      } catch {}
+    }
+
+    const allKeys = [...page1];
+    let page = 2;
     while (true) {
-      const n = await this.loadGamePage(page);
-      if (n === 0) break;
+      const keys = await this._fetchKeyPage(page);
+      if (keys.length === 0) break;
+      allKeys.push(...keys);
       page++;
+    }
+
+    for (const s of allKeys) this.games.push(this._makeGame(s));
+
+    if (!this.dryRun) {
+      try {
+        await mkdir(dirname(cacheFile), { recursive: true });
+        await writeFile(cacheFile, JSON.stringify(allKeys, null, 2));
+      } catch {}
     }
   }
 
@@ -99,7 +173,7 @@ export class Library {
       const j = (await r.json()) as { user?: UserProfile };
       return j.user ?? null;
     } catch {
-      console.log(`Failed to load profile (HTTP ${r.status})`);
+      this.logger(`Failed to load profile (HTTP ${r.status})`);
       return null;
     }
   }
@@ -112,7 +186,7 @@ export class Library {
       const j = (await r.json()) as { collections?: Collection[] };
       return Array.isArray(j.collections) ? j.collections : [];
     } catch {
-      console.log(`Failed to load collections (HTTP ${r.status})`);
+      this.logger(`Failed to load collections (HTTP ${r.status})`);
       return [];
     }
   }
@@ -128,7 +202,7 @@ export class Library {
       try {
         j = (await r.json()) as { collection_games?: Array<{ game: GameData }> };
       } catch {
-        console.log(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
         break;
       }
       if (!Array.isArray(j.collection_games) || j.collection_games.length === 0) break;
@@ -139,6 +213,8 @@ export class Library {
             this.humanFolders,
             this.outputDir,
             this.dryRun,
+            this.logger,
+            this.deep ?? false,
           ),
         );
       }
@@ -154,7 +230,7 @@ export class Library {
       const j = (await r.json()) as { bundle_keys?: BundleKey[] };
       return Array.isArray(j.bundle_keys) ? j.bundle_keys : [];
     } catch {
-      console.log(`Failed to load bundles (HTTP ${r.status})`);
+      this.logger(`Failed to load bundles (HTTP ${r.status})`);
       return [];
     }
   }
@@ -170,7 +246,7 @@ export class Library {
       try {
         j = (await r.json()) as { bundle_games?: Array<{ game: GameData }> };
       } catch {
-        console.log(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
         break;
       }
       if (!Array.isArray(j.bundle_games) || j.bundle_games.length === 0) break;
@@ -181,6 +257,8 @@ export class Library {
             this.humanFolders,
             this.outputDir,
             this.dryRun,
+            this.logger,
+            this.deep ?? false,
           ),
         );
       }
@@ -188,7 +266,7 @@ export class Library {
     }
   }
 
-  async downloadLibrary(platform?: string): Promise<void> {
+  async downloadLibrary(platform?: string): Promise<{ downloaded: number; errors: number }> {
     const games = this.filters.length
       ? this.games.filter((g) => this.filters.some((f) => g.name.toLowerCase().includes(f)))
       : this.games;
@@ -196,22 +274,27 @@ export class Library {
     let downloaded = 0;
     let errors = 0;
 
+    let done = 0;
+
     const tasks = games.map((g) => async () => {
       try {
-        await g.download(this.token, platform);
-        downloaded++;
-        console.log(`Downloaded ${g.name} (${downloaded} of ${total})`);
+        const hadNewFiles = await g.download(this.token, platform);
+        if (hadNewFiles) {
+          downloaded++;
+          this.logger(`Downloaded ${g.name} (${downloaded} of ${total})`);
+        }
       } catch (e) {
         if (e instanceof NoDownloadError) {
-          console.log(String(e));
+          this.logger(String(e));
           errors++;
         } else {
           throw e;
         }
       }
+      this.onProgress?.(++done, total, downloaded);
     });
 
     await runConcurrently(tasks, this.jobs);
-    console.log(`Downloaded ${downloaded} games, ${errors} errors`);
+    return { downloaded, errors };
   }
 }
