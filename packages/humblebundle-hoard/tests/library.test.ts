@@ -17,6 +17,16 @@ const { fetchWithRetryMock, bundleDoDownloadMock, bundleWorkItemsMock, bundleTot
     bundleTotalFilesMock: vi.fn<() => number>(() => 1),
   }));
 
+const mockReadFile = vi.hoisted(() => vi.fn());
+const mockWriteFile = vi.hoisted(() => vi.fn());
+const mockMkdir = vi.hoisted(() => vi.fn());
+
+vi.mock('fs/promises', () => ({
+  readFile: mockReadFile,
+  writeFile: mockWriteFile,
+  mkdir: mockMkdir,
+}));
+
 vi.mock('../src/utils.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/utils.js')>();
   return {
@@ -72,6 +82,13 @@ function makeBundleData(name = 'Test Bundle') {
   };
 }
 
+function makeCacheEntry(data: ReturnType<typeof makeBundleData>, ageMs = 0) {
+  return JSON.stringify({
+    fetchedAt: new Date(Date.now() - ageMs).toISOString(),
+    data,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Constructor
 // ---------------------------------------------------------------------------
@@ -95,6 +112,10 @@ describe('Library constructor', () => {
 describe('Library.loadOrders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // default: cache miss
+    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockWriteFile.mockResolvedValue(undefined);
+    mockMkdir.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -208,6 +229,62 @@ describe('Library.loadOrders', () => {
     await lib.loadOrders();
     expect(lib.bundles).toHaveLength(0);
   });
+
+  it('serves order from cache and skips fetch when cache is fresh', async () => {
+    fetchWithRetryMock.mockResolvedValueOnce(mockResponse([{ gamekey: 'key-a' }]));
+    mockReadFile.mockResolvedValue(makeCacheEntry(makeBundleData('Cached Bundle')));
+
+    const lib = new Library(makeOptions());
+    await lib.loadOrders();
+
+    // only the keys fetch should have been called, not the order detail fetch
+    expect(fetchWithRetryMock).toHaveBeenCalledTimes(1);
+    expect(fetchWithRetryMock.mock.calls[0][0]).toContain('/api/v1/user/order');
+    expect(lib.bundles).toHaveLength(1);
+    expect(lib.bundles[0].name).toBe('Cached Bundle');
+  });
+
+  it('re-fetches order when cache is older than TTL', async () => {
+    const eightDaysMs = 8 * 24 * 60 * 60 * 1000;
+    fetchWithRetryMock
+      .mockResolvedValueOnce(mockResponse([{ gamekey: 'key-a' }]))
+      .mockResolvedValueOnce(mockResponse(makeBundleData('Fresh Bundle')));
+    mockReadFile.mockResolvedValue(makeCacheEntry(makeBundleData('Stale Bundle'), eightDaysMs));
+
+    const lib = new Library(makeOptions());
+    await lib.loadOrders();
+
+    expect(fetchWithRetryMock).toHaveBeenCalledTimes(2);
+    expect(lib.bundles[0].name).toBe('Fresh Bundle');
+  });
+
+  it('re-fetches order in deep mode even when cache is fresh', async () => {
+    fetchWithRetryMock
+      .mockResolvedValueOnce(mockResponse([{ gamekey: 'key-a' }]))
+      .mockResolvedValueOnce(mockResponse(makeBundleData('Fresh Bundle')));
+    mockReadFile.mockResolvedValue(makeCacheEntry(makeBundleData('Cached Bundle')));
+
+    const lib = new Library(makeOptions({ deep: true }));
+    await lib.loadOrders();
+
+    expect(fetchWithRetryMock).toHaveBeenCalledTimes(2);
+    expect(lib.bundles[0].name).toBe('Fresh Bundle');
+  });
+
+  it('writes fetched order data to cache', async () => {
+    fetchWithRetryMock
+      .mockResolvedValueOnce(mockResponse([{ gamekey: 'key-a' }]))
+      .mockResolvedValueOnce(mockResponse(makeBundleData('New Bundle')));
+
+    const lib = new Library(makeOptions());
+    await lib.loadOrders();
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringContaining('key-a.json'),
+      expect.stringContaining('New Bundle'),
+      'utf-8',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -217,6 +294,9 @@ describe('Library.loadOrders', () => {
 describe('Library.loadOrder', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockWriteFile.mockResolvedValue(undefined);
+    mockMkdir.mockResolvedValue(undefined);
   });
 
   it('fetches from /api/v1/order/:key', async () => {
@@ -248,6 +328,15 @@ describe('Library.loadOrder', () => {
     const lib = new Library(makeOptions());
     await expect(lib.loadOrder('bad-key')).rejects.toThrow(/404/);
   });
+
+  it('serves from cache without fetching when cache is fresh', async () => {
+    mockReadFile.mockResolvedValue(makeCacheEntry(makeBundleData('Cached Order')));
+    const lib = new Library(makeOptions());
+    await lib.loadOrder('my-key');
+
+    expect(fetchWithRetryMock).not.toHaveBeenCalled();
+    expect(lib.bundles[0].name).toBe('Cached Order');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -260,6 +349,9 @@ describe('Library.downloadLibrary', () => {
     bundleDoDownloadMock.mockResolvedValue('downloaded');
     bundleWorkItemsMock.mockReturnValue([fakeWorkItem]);
     bundleTotalFilesMock.mockReturnValue(1);
+    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockWriteFile.mockResolvedValue(undefined);
+    mockMkdir.mockResolvedValue(undefined);
   });
 
   afterEach(() => {

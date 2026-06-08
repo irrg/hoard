@@ -1,9 +1,12 @@
 import { existsSync, readdirSync } from 'fs';
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import { join } from 'path';
 
 import { Bundle, BundleData, BundleOptions } from './bundle.js';
 import { fetchWithRetry, runConcurrently } from './utils.js';
 
 const BASE_URL = 'https://www.humblebundle.com';
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface LibraryOptions {
   cookie: string;
@@ -17,6 +20,11 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   deep?: boolean;
+}
+
+interface CachedOrder {
+  fetchedAt: string;
+  data: BundleData;
 }
 
 export class Library {
@@ -53,6 +61,32 @@ export class Library {
     };
   }
 
+  private ordersDir(): string {
+    return join(this.bundleOptions.outputDir, '.data', 'orders');
+  }
+
+  private orderCachePath(key: string): string {
+    return join(this.ordersDir(), `${key}.json`);
+  }
+
+  private async loadCachedOrder(key: string): Promise<BundleData | null> {
+    try {
+      const raw = await readFile(this.orderCachePath(key), 'utf-8');
+      const cached = JSON.parse(raw) as CachedOrder;
+      const age = Date.now() - new Date(cached.fetchedAt).getTime();
+      if (age > CACHE_TTL_MS) return null;
+      return cached.data;
+    } catch {
+      return null;
+    }
+  }
+
+  private async saveCachedOrder(key: string, data: BundleData): Promise<void> {
+    await mkdir(this.ordersDir(), { recursive: true });
+    const entry: CachedOrder = { fetchedAt: new Date().toISOString(), data };
+    await writeFile(this.orderCachePath(key), JSON.stringify(entry, null, 2), 'utf-8');
+  }
+
   private async fetchKeys(): Promise<string[]> {
     const r = await fetchWithRetry(
       `${BASE_URL}/api/v1/user/order`,
@@ -66,30 +100,33 @@ export class Library {
   }
 
   private async fetchBundles(keys: string[]): Promise<void> {
-    const results = await Promise.all(
-      keys.map(async (key) => {
-        const r = await fetchWithRetry(
-          `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
-          { headers: this.authHeaders },
-          3,
-          this.logger,
-        );
-        if (!r.ok) {
-          this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
-          return null;
-        }
-        try {
-          const data = (await r.json()) as BundleData;
-          return new Bundle(key, data, this.bundleOptions);
-        } catch {
-          this.logger(`Failed to parse order ${key}`);
-          return null;
-        }
-      }),
-    );
-    for (const bundle of results) {
-      if (bundle) this.bundles.push(bundle);
-    }
+    const tasks = keys.map((key) => async () => {
+      const cached = this.bundleOptions.deep ? null : await this.loadCachedOrder(key);
+      if (cached) {
+        this.bundles.push(new Bundle(key, cached, this.bundleOptions));
+        return;
+      }
+      const r = await fetchWithRetry(
+        `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
+        { headers: this.authHeaders },
+        3,
+        this.logger,
+      );
+      if (!r.ok) {
+        this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
+        return;
+      }
+      try {
+        const data = (await r.json()) as BundleData;
+        await this.saveCachedOrder(key, data).catch((e) => {
+          this.logger(`Failed to cache order ${key}: ${e instanceof Error ? e.message : e}`);
+        });
+        this.bundles.push(new Bundle(key, data, this.bundleOptions));
+      } catch {
+        this.logger(`Failed to parse order ${key}`);
+      }
+    });
+    await runConcurrently(tasks, 4);
   }
 
   async loadOrders(keys?: string[]): Promise<void> {
@@ -99,6 +136,11 @@ export class Library {
   }
 
   async loadOrder(key: string): Promise<void> {
+    const cached = this.bundleOptions.deep ? null : await this.loadCachedOrder(key);
+    if (cached) {
+      this.bundles.push(new Bundle(key, cached, this.bundleOptions));
+      return;
+    }
     const r = await fetchWithRetry(
       `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
       { headers: this.authHeaders },
@@ -107,6 +149,9 @@ export class Library {
     );
     if (!r.ok) throw new Error(`Failed to fetch order ${key}: HTTP ${r.status}`);
     const data = (await r.json()) as BundleData;
+    await this.saveCachedOrder(key, data).catch((e) => {
+      this.logger(`Failed to cache order ${key}: ${e instanceof Error ? e.message : e}`);
+    });
     this.bundles.push(new Bundle(key, data, this.bundleOptions));
   }
 
