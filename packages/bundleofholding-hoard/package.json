@@ -33,5 +33,10 @@
   },
   "dependencies": {
     "node-html-parser": "^7.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irrg/hoard.git",
+    "directory": "packages/bundleofholding-hoard"
   }
 }
