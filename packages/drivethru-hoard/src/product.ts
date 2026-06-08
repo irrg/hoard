@@ -1,6 +1,6 @@
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
-import path from 'path';
+import path, { dirname, extname, relative } from 'path';
 
 import { API_BASE } from './auth.js';
 import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from './utils.js';
@@ -25,6 +25,8 @@ export interface ProductOptions {
   compat: boolean;
   omitPublisher: boolean;
   dryRun: boolean;
+  deep?: boolean;
+  logger: (msg: string) => void;
 }
 
 const SITE_ID = '10';
@@ -53,20 +55,27 @@ export class Product {
       : path.join(options.outputDir, pub, prod);
   }
 
-  async download(bearerToken: string): Promise<void> {
-    if (this.data.files.length === 0) return;
+  async download(bearerToken: string): Promise<boolean> {
+    if (this.data.files.length === 0) return false;
+    if (!this.options.deep && hasFiles(this.dir)) return false;
 
-    console.log(`Downloading ${this.name}`);
+    this.options.logger(`Downloading ${this.name}`);
 
     let wrote = 0;
     for (const item of this.data.files) {
       if (await this.doDownload(item, bearerToken)) wrote++;
     }
 
-    if (wrote === 0) return;
+    if (wrote === 0) return false;
 
+    const manifestPath = path.join(
+      this.outputDir,
+      '.data',
+      relative(this.outputDir, this.dir) + '.json',
+    );
+    await mkdir(dirname(manifestPath), { recursive: true });
     await writeFile(
-      this.dir + '.json',
+      manifestPath,
       JSON.stringify(
         {
           name: this.name,
@@ -79,6 +88,8 @@ export class Product {
         2,
       ),
     );
+
+    return true;
   }
 
   async doDownload(item: DownloadItemData, bearerToken: string): Promise<boolean> {
@@ -87,35 +98,34 @@ export class Product {
     const apiChecksum = newestChecksum(item);
 
     if (this.options.dryRun) {
-      console.log(`Dry run: ${this.name} - ${filename}`);
+      this.options.logger(`Dry run: ${this.name} - ${filename}`);
       return false;
     }
 
     if (existsSync(outFile)) {
-      console.log(`File already exists: ${filename}`);
-      const md5File = withSuffix(outFile, '.md5');
-
+      this.options.logger(`File already exists: ${filename}`);
+      const md5File = sidecarPath(this.outputDir, outFile);
       if (apiChecksum && existsSync(md5File)) {
         const stored = (await readFile(md5File, 'utf8')).trim();
         if (stored === apiChecksum) {
-          console.log(`Skipping ${this.name} - ${filename}`);
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
           return false;
         }
-        console.log(`Checksum mismatch: ${filename}`);
+        this.options.logger(`Checksum mismatch: ${filename}`);
       } else {
         const remoteTime = new Date(this.data.fileLastModified).getTime();
         const fileStat = await stat(outFile);
         if (remoteTime <= fileStat.mtimeMs) {
-          console.log(`Skipping ${this.name} - ${filename}`);
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
           return false;
         }
-        console.log(`File outdated: ${filename}`);
+        this.options.logger(`File outdated: ${filename}`);
       }
 
-      const oldDir = path.join(this.dir, 'old');
+      const oldDir = path.join(this.outputDir, '.data', relative(this.outputDir, this.dir), 'old');
       await mkdir(oldDir, { recursive: true });
       const timestamp = new Date().toISOString().split('T')[0];
-      console.log(`Moving ${filename} to old/`);
+      this.options.logger(`Moving ${filename} to old/`);
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
 
@@ -126,28 +136,30 @@ export class Product {
       url = await this._prepareDownloadUrl(item, bearerToken);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
+      this.options.logger(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, '', msg);
       return false;
     }
 
     try {
-      console.log(`Downloading ${this.name} - ${filename}`);
+      this.options.logger(`Downloading ${this.name} - ${filename}`);
       await streamToFile(url, outFile);
-      console.log(`Downloaded ${filename}`);
+      this.options.logger(`Downloaded ${filename}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      console.log(`Download failed: ${this.name} - ${filename}: ${msg}`);
+      this.options.logger(`Download failed: ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, url, msg);
       return false;
     }
 
     if (apiChecksum) {
       const computed = await md5sum(outFile);
-      const md5File = withSuffix(outFile, '.md5');
-      await writeFile(md5File, computed);
-      if (computed !== apiChecksum) {
-        console.log(`Failed to verify ${filename}`);
+      if (computed === apiChecksum) {
+        const md5File = sidecarPath(this.outputDir, outFile);
+        await mkdir(dirname(md5File), { recursive: true });
+        await writeFile(md5File, apiChecksum);
+      } else {
+        this.options.logger(`Failed to verify ${filename}`);
       }
     }
 
@@ -169,6 +181,8 @@ export class Product {
     let r = await fetchWithRetry(
       `${API_BASE}order_products/${this.data.orderProductId}/prepare?${params}`,
       { headers },
+      3,
+      this.options.logger,
     );
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
 
@@ -179,6 +193,8 @@ export class Product {
       r = await fetchWithRetry(
         `${API_BASE}order_products/${this.data.orderProductId}/check?${params}`,
         { headers },
+        3,
+        this.options.logger,
       );
       if (!r.ok) throw new Error(`Poll failed: HTTP ${r.status}`);
       data = (await r.json()) as { url: string; status: string };
@@ -196,7 +212,7 @@ export class Product {
   ): Promise<void> {
     const safeUrl = url.replace(/applicationKey=[^&]+/, 'applicationKey=REDACTED');
     await appendFile(
-      path.join(this.outputDir, 'errors.txt'),
+      path.join(this.outputDir, '.data', 'errors.txt'),
       [
         ` Cannot download: ${this.name}`,
         ` Path: ${outFile}`,
@@ -209,17 +225,28 @@ export class Product {
   }
 }
 
+function hasFiles(dir: string): boolean {
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+  } catch {
+    return false;
+  }
+}
+
 function newestChecksum(item: DownloadItemData): string | null {
   if (!Array.isArray(item.checksums) || item.checksums.length === 0) return null;
   const sorted = [...item.checksums].sort(
     (a, b) => new Date(b.checksumDate).getTime() - new Date(a.checksumDate).getTime(),
   );
-  return sorted[0].checksum ?? null;
+  return sorted[0].checksum?.toLowerCase() ?? null;
 }
 
-function withSuffix(filePath: string, newExt: string): string {
-  const ext = path.extname(filePath);
-  return ext ? filePath.slice(0, -ext.length) + newExt : filePath + newExt;
+function sidecarPath(outputDir: string, filePath: string): string {
+  const rel = relative(outputDir, filePath);
+  const ext = extname(rel);
+  const base = ext ? rel.slice(0, -ext.length) : rel;
+  return path.join(outputDir, '.data', base + '.md5');
 }
 
 function sleep(ms: number): Promise<void> {

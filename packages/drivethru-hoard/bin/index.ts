@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { intro, text, outro, isCancel, cancel } from '@clack/prompts';
+import * as cliProgress from 'cli-progress';
 
 import { Library } from '../src/index.js';
 
@@ -39,6 +43,16 @@ Options:
 let apiKey = args.key ?? '';
 
 if (!apiKey) {
+  try {
+    const raw = await readFile(join(homedir(), '.hoard', 'config.json'), 'utf-8');
+    const cfg = JSON.parse(raw) as Record<string, unknown>;
+    apiKey = (cfg['HOARD_DRIVETHRU_API_KEY'] as string) ?? '';
+  } catch {
+    // no config
+  }
+}
+
+if (!apiKey) {
   intro('drivethru-hoard');
 
   const key = await text({ message: 'DriveThruRPG API key:' });
@@ -55,6 +69,12 @@ if (isNaN(jobs) || jobs < 1) {
   process.exit(1);
 }
 
+const barOptions = (): cliProgress.Options => ({
+  format: 'Downloading |{bar}| {value}/{total} ({downloaded} new)',
+});
+
+let bar: cliProgress.SingleBar | null = null;
+
 const lib = new Library({
   apiKey,
   outputDir: args.output ?? 'downloads',
@@ -63,10 +83,18 @@ const lib = new Library({
   omitPublisher: args['omit-publisher'] ?? false,
   dryRun: args['dry-run'] ?? false,
   filters: args.filter ?? [],
+  logger: () => {},
+  onProgress: (done, total, downloaded) => bar?.update(done, { downloaded }),
 });
 
+process.stdout.write('Authenticating...\n');
 await lib.authenticate();
+process.stdout.write('Loading product list...\n');
 await lib.loadProducts();
-await lib.downloadLibrary();
 
-outro('Done.');
+bar = new cliProgress.SingleBar(barOptions(), cliProgress.Presets.shades_classic);
+bar.start(lib.products.length, 0, { downloaded: 0 });
+const result = await lib.downloadLibrary();
+bar.stop();
+
+outro(`Downloaded ${result.downloaded} new files, ${result.errors} errors.`);
