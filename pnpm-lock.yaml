@@ -7,21 +7,27 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      husky:
+        specifier: ^9.0.0
+        version: 9.1.7
+
+  apps/hoard:
     dependencies:
       '@clack/prompts':
         specifier: ^0.9.0
         version: 0.9.1
       '@irrg/bundleofholding-hoard':
-        specifier: file:../bundleofholding-hoard
+        specifier: file:../../../bundleofholding-hoard
         version: file:../bundleofholding-hoard
       '@irrg/drivethru-hoard':
-        specifier: file:../drivethru-hoard
+        specifier: file:../../../drivethru-hoard
         version: file:../drivethru-hoard
       '@irrg/humblebundle-hoard':
-        specifier: file:../humblebundle-hoard
+        specifier: file:../../../humblebundle-hoard
         version: file:../humblebundle-hoard
       '@irrg/itchio-hoard':
-        specifier: file:../itchio-hoard
+        specifier: file:../../../itchio-hoard
         version: file:../itchio-hoard
       cli-progress:
         specifier: ^3.12.0
