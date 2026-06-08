@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
-import path, { dirname, extname, relative } from 'path';
+import path, { dirname, relative } from 'path';
 
 import { API_BASE } from './auth.js';
 import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from './utils.js';
@@ -122,7 +122,7 @@ export class Product {
         this.options.logger(`File outdated: ${filename}`);
       }
 
-      const oldDir = path.join(this.outputDir, '.data', relative(this.outputDir, this.dir), 'old');
+      const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
       const timestamp = new Date().toISOString().split('T')[0];
       this.options.logger(`Moving ${filename} to old/`);
@@ -227,7 +227,7 @@ export class Product {
 function hasFiles(dir: string): boolean {
   if (!existsSync(dir)) return false;
   try {
-    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+    return readdirSync(dir).some((e) => !String(e).startsWith('.') && e !== 'old');
   } catch {
     return false;
   }
@@ -243,9 +243,7 @@ function newestChecksum(item: DownloadItemData): string | null {
 
 function sidecarPath(outputDir: string, filePath: string): string {
   const rel = relative(outputDir, filePath);
-  const ext = extname(rel);
-  const base = ext ? rel.slice(0, -ext.length) : rel;
-  return path.join(outputDir, '.data', base + '.md5');
+  return path.join(outputDir, '.data', rel + '.md5');
 }
 
 function sleep(ms: number): Promise<void> {

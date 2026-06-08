@@ -169,7 +169,10 @@ describe('Bundle.download', () => {
   it('writes an md5 file after successful download', async () => {
     const b = new Bundle('k', makeData(), makeOptions());
     await b.download();
-    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('mybook.md5'), 'aabbccdd');
+    expect(writeFileMock).toHaveBeenCalledWith(
+      expect.stringContaining('mybook.pdf.md5'),
+      'aabbccdd',
+    );
   });
 
   // -------------------------------------------------------------------------

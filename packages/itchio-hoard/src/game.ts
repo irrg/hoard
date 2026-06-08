@@ -201,12 +201,7 @@ export class Game {
         }
       }
 
-      const oldDir = path.join(
-        this.outputDir,
-        '.data',
-        path.relative(this.outputDir, this.dir),
-        'old',
-      );
+      const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
 
       this.logger(`Moving ${filename} to old/`);
@@ -313,7 +308,7 @@ export class Game {
 function hasFiles(dir: string): boolean {
   if (!existsSync(dir)) return false;
   try {
-    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+    return readdirSync(dir).some((e) => !String(e).startsWith('.') && e !== 'old');
   } catch {
     return false;
   }
@@ -321,7 +316,5 @@ function hasFiles(dir: string): boolean {
 
 function sidecarPath(outputDir: string, filePath: string): string {
   const rel = path.relative(outputDir, filePath);
-  const ext = path.extname(rel);
-  const base = ext ? rel.slice(0, -ext.length) : rel;
-  return path.join(outputDir, '.data', base + '.md5');
+  return path.join(outputDir, '.data', rel + '.md5');
 }

@@ -155,7 +155,7 @@ export class Library {
           }
           this.logger(`Checksum mismatch: ${file.filename}`);
           if (!this.dryRun) {
-            const oldDir = join(this.outputDir, '.data', relative(this.outputDir, dir), 'old');
+            const oldDir = join(dir, 'old');
             await mkdir(oldDir, { recursive: true });
             this.logger(`Moving ${file.filename} to old/`);
             const timestamp = new Date().toISOString().split('T')[0];
@@ -201,7 +201,7 @@ export class Library {
 function hasFiles(dir: string): boolean {
   if (!existsSync(dir)) return false;
   try {
-    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+    return readdirSync(dir).some((e) => !String(e).startsWith('.') && e !== 'old');
   } catch {
     return false;
   }
