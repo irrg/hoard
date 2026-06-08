@@ -19,7 +19,7 @@
     "lint": "oxlint src bin tests",
     "fmt": "oxfmt src bin tests",
     "fmt:check": "oxfmt --check src bin tests",
-    "hoard": "node --import tsx/esm bin/index.ts"
+    "hoard": "node --import tsx/esm --conditions=development bin/index.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.0",
