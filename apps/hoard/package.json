@@ -19,16 +19,15 @@
     "lint": "oxlint src bin tests",
     "fmt": "oxfmt src bin tests",
     "fmt:check": "oxfmt --check src bin tests",
-    "hoard": "node --import tsx/esm bin/index.ts",
-    "prepare": "husky"
+    "hoard": "node --import tsx/esm bin/index.ts"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.0",
     "cli-progress": "^3.12.0",
-    "@irrg/bundleofholding-hoard": "file:../bundleofholding-hoard",
-    "@irrg/drivethru-hoard": "file:../drivethru-hoard",
-    "@irrg/humblebundle-hoard": "file:../humblebundle-hoard",
-    "@irrg/itchio-hoard": "file:../itchio-hoard"
+    "@irrg/bundleofholding-hoard": "file:../../../bundleofholding-hoard",
+    "@irrg/drivethru-hoard": "file:../../../drivethru-hoard",
+    "@irrg/humblebundle-hoard": "file:../../../humblebundle-hoard",
+    "@irrg/itchio-hoard": "file:../../../itchio-hoard"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.0",
@@ -42,10 +41,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }
