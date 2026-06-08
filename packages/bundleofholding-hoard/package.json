@@ -28,7 +28,8 @@
     "fmt:check": "oxfmt --check src tests"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "dependencies": {
     "node-html-parser": "^7.0.0"
