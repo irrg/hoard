@@ -130,9 +130,22 @@ export class Game {
 
     await mkdir(this.dir, { recursive: true });
 
+    const filenameGroups = new Map<string, Upload[]>();
+    for (const d of eligible) {
+      const base = cleanPath(d.filename ?? d.display_name ?? String(d.id));
+      const key = base.toLowerCase();
+      const arr = filenameGroups.get(key) ?? [];
+      arr.push(d);
+      filenameGroups.set(key, arr);
+    }
+
     let wrote = 0;
     for (const d of eligible) {
-      if (await this.doDownload(d, token)) wrote++;
+      const base = cleanPath(d.filename ?? d.display_name ?? String(d.id));
+      const key = base.toLowerCase();
+      const group = filenameGroups.get(key)!;
+      const filename = group.length > 1 ? disambiguateFilename(base, d.id) : base;
+      if (await this.doDownload(d, token, filename)) wrote++;
     }
 
     if (wrote === 0) return false;
@@ -161,9 +174,7 @@ export class Game {
     return true;
   }
 
-  async doDownload(d: Upload, token: string): Promise<boolean> {
-    const rawFilename = d.filename ?? d.display_name ?? String(d.id);
-    const filename = cleanPath(rawFilename);
+  async doDownload(d: Upload, token: string, filename: string): Promise<boolean> {
     const outFile = path.join(this.dir, filename);
     const md5Hash = d.md5_hash?.toLowerCase();
 
@@ -305,6 +316,12 @@ export class Game {
       ].join('\n'),
     );
   }
+}
+
+function disambiguateFilename(filename: string, id: number): string {
+  const ext = path.extname(filename);
+  const base = ext ? filename.slice(0, -ext.length) : filename;
+  return `${base}_${id}${ext}`;
 }
 
 function hasFiles(dir: string): boolean {
