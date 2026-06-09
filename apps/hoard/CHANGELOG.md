@@ -1,5 +1,15 @@
 # @irrg/hoard
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [63ddb59]
+  - @irrg/itchio-hoard@0.2.2
+  - @irrg/humblebundle-hoard@0.2.3
+  - @irrg/drivethru-hoard@0.2.2
+  - @irrg/bundleofholding-hoard@0.2.2
+
 ## 0.2.0
 
 ### Minor Changes
