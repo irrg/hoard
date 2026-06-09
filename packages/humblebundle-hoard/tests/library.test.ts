@@ -5,14 +5,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 const fakeItem = { url: { web: 'http://x/file.pdf' } };
-const fakeWorkItem = { item: fakeItem, subDir: '/tmp', productName: 'p' };
+const fakeWorkItem = { item: fakeItem, subDir: '/tmp', productName: 'p', filename: 'file.pdf' };
 
 const { fetchWithRetryMock, bundleDoDownloadMock, bundleWorkItemsMock, bundleTotalFilesMock } =
   vi.hoisted(() => ({
     fetchWithRetryMock: vi.fn(),
-    bundleDoDownloadMock: vi.fn<() => Promise<'downloaded' | 'skipped' | 'error'>>(() =>
-      Promise.resolve('downloaded'),
-    ),
+    bundleDoDownloadMock: vi.fn<
+      (...args: unknown[]) => Promise<'downloaded' | 'skipped' | 'error'>
+    >(() => Promise.resolve('downloaded')),
     bundleWorkItemsMock: vi.fn(() => [fakeWorkItem]),
     bundleTotalFilesMock: vi.fn<() => number>(() => 1),
   }));
@@ -44,8 +44,10 @@ vi.mock('../src/bundle.js', async (importOriginal) => {
     override workItems() {
       return bundleWorkItemsMock() as ReturnType<typeof super.workItems>;
     }
-    override async doDownload() {
-      return bundleDoDownloadMock();
+    override async doDownload(
+      ...args: Parameters<InstanceType<typeof original.Bundle>['doDownload']>
+    ) {
+      return bundleDoDownloadMock(...args);
     }
   }
   return { ...original, Bundle: MockBundle };
@@ -433,6 +435,16 @@ describe('Library.downloadLibrary', () => {
     const lib = await loadedLibrary(1, { logger });
     await lib.downloadLibrary();
     expect(logger).toHaveBeenCalledWith(expect.stringMatching(/error/i));
+  });
+
+  it('forwards the filename from workItem to doDownload', async () => {
+    bundleWorkItemsMock.mockReturnValue([
+      { item: fakeItem, subDir: '/tmp/a', productName: 'Book', filename: 'book_42.pdf' },
+    ]);
+    bundleTotalFilesMock.mockReturnValue(1);
+    const lib = await loadedLibrary(1, { jobs: 1 });
+    await lib.downloadLibrary();
+    expect(bundleDoDownloadMock).toHaveBeenCalledWith(fakeItem, '/tmp/a', 'Book', 'book_42.pdf');
   });
 
   it('mixes downloaded and error counts across multiple bundles', async () => {
