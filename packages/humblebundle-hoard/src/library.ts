@@ -169,9 +169,9 @@ export class Library {
           this.onProgress?.(done, total, downloaded);
         });
       }
-      return work.map(({ item, subDir, productName }) => async () => {
+      return work.map(({ item, subDir, productName, filename }) => async () => {
         try {
-          const result = await b.doDownload(item, subDir, productName);
+          const result = await b.doDownload(item, subDir, productName, filename);
           if (result === 'downloaded') downloaded++;
           else if (result === 'error') errors++;
         } catch (e) {
