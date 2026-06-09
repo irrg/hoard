@@ -61,9 +61,22 @@ export class Product {
 
     this.options.logger(`Downloading ${this.name}`);
 
+    const filenameGroups = new Map<string, DownloadItemData[]>();
+    for (const item of this.data.files) {
+      const base = normalizePathPart(item.filename, this.options.compat);
+      const key = base.toLowerCase();
+      const arr = filenameGroups.get(key) ?? [];
+      arr.push(item);
+      filenameGroups.set(key, arr);
+    }
+
     let wrote = 0;
     for (const item of this.data.files) {
-      if (await this.doDownload(item, bearerToken)) wrote++;
+      const base = normalizePathPart(item.filename, this.options.compat);
+      const key = base.toLowerCase();
+      const group = filenameGroups.get(key)!;
+      const filename = group.length > 1 ? disambiguateFilename(base, item.index) : base;
+      if (await this.doDownload(item, bearerToken, filename)) wrote++;
     }
 
     if (wrote === 0) return false;
@@ -92,8 +105,11 @@ export class Product {
     return true;
   }
 
-  async doDownload(item: DownloadItemData, bearerToken: string): Promise<boolean> {
-    const filename = normalizePathPart(item.filename, this.options.compat);
+  async doDownload(
+    item: DownloadItemData,
+    bearerToken: string,
+    filename: string,
+  ): Promise<boolean> {
     const outFile = path.join(this.dir, filename);
     const apiChecksum = newestChecksum(item);
 
@@ -222,6 +238,12 @@ export class Product {
       ].join('\n'),
     );
   }
+}
+
+function disambiguateFilename(filename: string, id: number | string): string {
+  const ext = path.extname(filename);
+  const base = ext ? filename.slice(0, -ext.length) : filename;
+  return `${base}_${id}${ext}`;
 }
 
 function hasFiles(dir: string): boolean {

@@ -99,9 +99,21 @@ export class Library {
       this.logger(`Downloading ${title}`);
       if (!this.dryRun) await mkdir(dir, { recursive: true });
 
+      const filenameGroups = new Map<string, DownloadFile[]>();
+      for (const f of files) {
+        const key = f.filename.toLowerCase();
+        const arr = filenameGroups.get(key) ?? [];
+        arr.push(f);
+        filenameGroups.set(key, arr);
+      }
+
       let bundleHadNewFiles = false;
       const tasks = files.map((f) => async () => {
-        const result = await this.downloadFile(title, dir, f);
+        const key = f.filename.toLowerCase();
+        const group = filenameGroups.get(key)!;
+        const idx = group.indexOf(f);
+        const filename = group.length > 1 ? disambiguateFilename(f.filename, idx + 1) : f.filename;
+        const result = await this.downloadFile(title, dir, f, filename);
         if (result === 'downloaded') bundleHadNewFiles = true;
         if (result === 'error') errors++;
         this.onProgress?.(++filesDone, total, downloaded);
@@ -130,18 +142,19 @@ export class Library {
     bundleName: string,
     dir: string,
     file: DownloadFile,
+    filename: string,
   ): Promise<'downloaded' | 'skipped' | 'error'> {
-    const outPath = join(dir, file.filename);
+    const outPath = join(dir, filename);
     const sidePath = sidecarPath(this.outputDir, outPath);
 
     try {
       if (existsSync(outPath)) {
-        this.logger(`File already exists: ${file.filename}`);
+        this.logger(`File already exists: ${filename}`);
         if (file.md5) {
           if (existsSync(sidePath)) {
             const stored = (await readFile(sidePath, 'utf8')).trim();
             if (stored === file.md5) {
-              this.logger(`Skipping ${bundleName} - ${file.filename}`);
+              this.logger(`Skipping ${bundleName} - ${filename}`);
               return 'skipped';
             }
           } else {
@@ -149,32 +162,32 @@ export class Library {
             if (actual === file.md5) {
               await mkdir(dirname(sidePath), { recursive: true });
               await writeFile(sidePath, file.md5);
-              this.logger(`Skipping ${bundleName} - ${file.filename}`);
+              this.logger(`Skipping ${bundleName} - ${filename}`);
               return 'skipped';
             }
           }
-          this.logger(`Checksum mismatch: ${file.filename}`);
+          this.logger(`Checksum mismatch: ${filename}`);
           if (!this.dryRun) {
             const oldDir = join(dir, 'old');
             await mkdir(oldDir, { recursive: true });
-            this.logger(`Moving ${file.filename} to old/`);
+            this.logger(`Moving ${filename} to old/`);
             const timestamp = new Date().toISOString().split('T')[0];
-            await rename(outPath, join(oldDir, `${timestamp}-${file.filename}`));
+            await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
           }
         } else {
-          this.logger(`Skipping ${bundleName} - ${file.filename}`);
+          this.logger(`Skipping ${bundleName} - ${filename}`);
           return 'skipped';
         }
       }
 
       if (this.dryRun) {
-        this.logger(`Dry run: ${bundleName} - ${file.filename}`);
+        this.logger(`Dry run: ${bundleName} - ${filename}`);
         return 'skipped';
       }
 
-      this.logger(`Downloading ${file.filename}`);
+      this.logger(`Downloading ${filename}`);
       await streamToFile(file.url, outPath, this.cookie);
-      this.logger(`Downloaded ${file.filename}`);
+      this.logger(`Downloaded ${filename}`);
 
       if (file.md5) {
         const actual = await md5sum(outPath);
@@ -182,20 +195,26 @@ export class Library {
           await mkdir(dirname(sidePath), { recursive: true });
           await writeFile(sidePath, file.md5);
         } else {
-          this.logger(`Failed to verify ${file.filename}`);
+          this.logger(`Failed to verify ${filename}`);
         }
       }
 
       return 'downloaded';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.logger(`Download failed: ${bundleName} - ${file.filename}: ${msg}`);
+      this.logger(`Download failed: ${bundleName} - ${filename}: ${msg}`);
       const dataDir = join(this.outputDir, '.data');
       await mkdir(dataDir, { recursive: true });
-      await appendFile(join(dataDir, 'errors.txt'), `${bundleName} - ${file.filename}: ${msg}\n`);
+      await appendFile(join(dataDir, 'errors.txt'), `${bundleName} - ${filename}: ${msg}\n`);
       return 'error';
     }
   }
+}
+
+function disambiguateFilename(filename: string, id: number | string): string {
+  const ext = extname(filename);
+  const base = ext ? filename.slice(0, -ext.length) : filename;
+  return `${base}_${id}${ext}`;
 }
 
 function hasFiles(dir: string): boolean {

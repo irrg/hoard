@@ -42,6 +42,7 @@ export interface BundleWorkItem {
   item: DownloadStructItem;
   subDir: string;
   productName: string;
+  filename: string;
 }
 
 export class Bundle {
@@ -70,7 +71,15 @@ export class Bundle {
     const subproducts = filters.length
       ? this.subproducts.filter((s) => filters.some((f) => s.human_name.toLowerCase().includes(f)))
       : this.subproducts;
-    const work: BundleWorkItem[] = [];
+
+    type RawItem = {
+      item: DownloadStructItem;
+      subDir: string;
+      productName: string;
+      rawFilename: string;
+    };
+    const raw: RawItem[] = [];
+
     for (const sub of subproducts) {
       const subDir = path.join(this.dir, cleanPath(sub.human_name));
       for (const dl of sub.downloads) {
@@ -80,11 +89,30 @@ export class Bundle {
         )
           continue;
         for (const item of Array.isArray(dl.download_struct) ? dl.download_struct : []) {
-          if (item.url?.web) work.push({ item, subDir, productName: sub.human_name });
+          if (item.url?.web) {
+            const rawFilename = filenameFromUrl(item.url.web);
+            if (rawFilename) raw.push({ item, subDir, productName: sub.human_name, rawFilename });
+          }
         }
       }
     }
-    return work;
+
+    const groups = new Map<string, RawItem[]>();
+    for (const r of raw) {
+      const key = `${r.subDir}::${r.rawFilename.toLowerCase()}`;
+      const arr = groups.get(key) ?? [];
+      arr.push(r);
+      groups.set(key, arr);
+    }
+
+    return raw.map((r) => {
+      const key = `${r.subDir}::${r.rawFilename.toLowerCase()}`;
+      const group = groups.get(key)!;
+      const idx = group.indexOf(r);
+      const filename =
+        group.length > 1 ? disambiguateFilename(r.rawFilename, idx + 1) : r.rawFilename;
+      return { item: r.item, subDir: r.subDir, productName: r.productName, filename };
+    });
   }
 
   totalFiles(): number {
@@ -110,8 +138,8 @@ export class Bundle {
     }
     let newFiles = 0;
     let errors = 0;
-    const tasks = work.map(({ item, subDir, productName }) => async () => {
-      const result = await this.doDownload(item, subDir, productName);
+    const tasks = work.map(({ item, subDir, productName, filename }) => async () => {
+      const result = await this.doDownload(item, subDir, productName, filename);
       onFile?.(result);
       if (result === 'downloaded') newFiles++;
       else if (result === 'error') errors++;
@@ -124,10 +152,8 @@ export class Bundle {
     item: DownloadStructItem,
     dir: string,
     productName: string,
+    filename: string,
   ): Promise<'downloaded' | 'skipped' | 'error'> {
-    const filename = filenameFromUrl(item.url.web);
-    if (!filename) return 'error';
-
     if (!this.shouldDownloadExt(filename)) {
       this.options.logger(`Skipping ${productName} - ${filename} (extension filtered)`);
       return 'skipped';
@@ -208,6 +234,12 @@ export class Bundle {
     if (this.options.extExclude.length > 0) return !this.options.extExclude.includes(ext);
     return true;
   }
+}
+
+function disambiguateFilename(filename: string, id: number | string): string {
+  const ext = path.extname(filename);
+  const base = ext ? filename.slice(0, -ext.length) : filename;
+  return `${base}_${id}${ext}`;
 }
 
 function hasFiles(dir: string): boolean {
