@@ -3,3 +3,4 @@ dist/
 downloads/
 .DS_Store
 .env
+.changeset/README.md
