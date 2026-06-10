@@ -2,6 +2,8 @@ import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 
+import type { RunTask } from '@irrg/hoard-core';
+
 import { Game, GameData, OwnedKeyData } from './game.js';
 import { NoDownloadError, fetchWithRetry, runConcurrently } from './utils.js';
 
@@ -46,6 +48,7 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   deep?: boolean;
+  runTask?: RunTask;
 }
 
 export class Library {
@@ -59,6 +62,7 @@ export class Library {
   filters: string[];
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
+  private runTask?: RunTask;
 
   constructor(
     token: string,
@@ -70,6 +74,7 @@ export class Library {
     logger: (msg: string) => void = () => {},
     onProgress?: (done: number, total: number, downloaded: number) => void,
     deep = false,
+    runTask?: RunTask,
   ) {
     this.token = token;
     this.games = [];
@@ -81,6 +86,7 @@ export class Library {
     this.filters = filters.map((f) => f.toLowerCase());
     this.logger = logger;
     this.onProgress = onProgress;
+    this.runTask = runTask;
   }
 
   async loadGamePage(page: number): Promise<number> {
@@ -294,7 +300,11 @@ export class Library {
       this.onProgress?.(++done, total, downloaded);
     });
 
-    await runConcurrently(tasks, this.jobs);
+    if (this.runTask) {
+      await Promise.all(tasks.map((task) => this.runTask!(task)));
+    } else {
+      await runConcurrently(tasks, this.jobs);
+    }
     return { downloaded, errors };
   }
 }

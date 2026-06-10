@@ -283,12 +283,18 @@ export class Game {
 
     if (md5Hash) {
       const computed = await md5sum(outFile);
+      if (computed !== md5Hash) {
+        const oldDir = path.join(this.dir, 'old');
+        await mkdir(oldDir, { recursive: true });
+        const timestamp = new Date().toISOString().split('T')[0];
+        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+        this.logger(`Checksum mismatch after download: ${filename}`);
+        await this._logError(outFile, filename, '', 'checksum mismatch after download');
+        return false;
+      }
       const md5File = sidecarPath(this.outputDir, outFile);
       await mkdir(path.dirname(md5File), { recursive: true });
       await writeFile(md5File, md5Hash);
-      if (computed !== md5Hash) {
-        this.logger(`Failed to verify ${filename}`);
-      }
     }
 
     return true;

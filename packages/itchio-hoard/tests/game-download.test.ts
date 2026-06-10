@@ -8,6 +8,7 @@ vi.mock('fs/promises', () => ({
   mkdir: vi.fn(),
   rename: vi.fn(),
   appendFile: vi.fn(),
+  unlink: vi.fn(),
 }));
 
 vi.mock('../src/utils.js', async (importOriginal) => {
@@ -238,13 +239,24 @@ describe('Game.doDownload', () => {
     expect(writeFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
   });
 
-  it('logs failure but does not throw when MD5 verification fails post-download', async () => {
+  it('moves file to old/, logs mismatch, and returns false when post-download MD5 fails', async () => {
     mockSession(fetchMock);
     vi.mocked(md5sum).mockResolvedValue('wrong-hash');
     const logSpy = vi.fn();
-    await makeGame(logSpy).doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok', 'game.zip');
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to verify'));
-    expect(writeFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
+    const result = await makeGame(logSpy).doDownload(
+      makeUpload({ md5_hash: 'abc123' }),
+      'tok',
+      'game.zip',
+    );
+    expect(result).toBe(false);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Checksum mismatch after download'),
+    );
+    expect(rename).toHaveBeenCalledWith(
+      expect.stringContaining('game.zip'),
+      expect.stringContaining('old'),
+    );
+    expect(writeFile).not.toHaveBeenCalledWith(expect.stringContaining('.md5'), expect.any(String));
   });
 
   it('skips when file exists and has no md5_hash', async () => {

@@ -16,6 +16,7 @@ vi.mock('fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   readFile: vi.fn(),
   rename: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
   writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -367,8 +368,8 @@ describe('Library.downloadBundles — file skip logic', () => {
   it('moves file to old/ and re-downloads when md5 mismatches', async () => {
     // File exists, sidecar does not
     mockExistsSync.mockImplementation((p: string) => !String(p).endsWith('.md5'));
-    // md5 of existing file does NOT match what the server reports
-    mockMd5sum.mockResolvedValue('differenthash');
+    // Pre-download: existing file has wrong hash; post-download: new file is correct
+    mockMd5sum.mockResolvedValueOnce('differenthash').mockResolvedValue('abc123');
 
     const lib = makeLibrary();
     const result = await lib.downloadBundles([makeBundleRef()]);
@@ -394,12 +395,11 @@ describe('Library.downloadBundles — file skip logic', () => {
     expect(mockStreamToFile).not.toHaveBeenCalled();
   });
 
-  it('skips re-download when sidecar hash mismatches but re-reads as mismatch', async () => {
+  it('moves to old/ and re-downloads when sidecar hash mismatches', async () => {
     // Both file and sidecar exist
     mockExistsSync.mockReturnValue(true);
-    // Sidecar content is different from expected md5
+    // Sidecar content differs from api md5 → mismatch; post-download md5 matches
     mockReadFile.mockResolvedValue('stale_hash' as unknown as Buffer);
-    mockMd5sum.mockResolvedValue('differenthash');
 
     const lib = makeLibrary();
     const result = await lib.downloadBundles([makeBundleRef()]);

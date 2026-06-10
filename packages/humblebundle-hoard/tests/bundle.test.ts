@@ -14,6 +14,7 @@ const {
   appendFileMock,
   streamToFileMock,
   md5sumMock,
+  unlinkMock,
 } = vi.hoisted(() => ({
   existsSyncMock: vi.fn<(p: string) => boolean>(() => false),
   readdirSyncMock: vi.fn(() => [] as unknown as ReturnType<typeof import('fs').readdirSync>),
@@ -22,6 +23,7 @@ const {
   mkdirMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   renameMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   appendFileMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  unlinkMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   streamToFileMock: vi.fn<() => Promise<void>>(() => Promise.resolve()),
   md5sumMock: vi.fn<() => Promise<string>>(() => Promise.resolve('aabbccdd')),
 }));
@@ -38,6 +40,7 @@ vi.mock('fs/promises', () => ({
   readFile: readFileMock,
   mkdir: mkdirMock,
   rename: renameMock,
+  unlink: unlinkMock,
   appendFile: appendFileMock,
 }));
 
@@ -156,7 +159,7 @@ describe('Bundle.download', () => {
     expect(streamToFileMock).toHaveBeenCalledWith(
       'https://dl.humblebundle.com/files/mybook.pdf',
       expect.stringContaining('mybook.pdf'),
-      'test-cookie',
+      '_simpleauth_sess=test-cookie',
     );
   });
 
@@ -212,12 +215,28 @@ describe('Bundle.download', () => {
 
   it('re-downloads and renames old file when md5 mismatches', async () => {
     existsSyncMock.mockImplementation((p: string) => p.endsWith('.pdf'));
-    md5sumMock.mockResolvedValue('deadbeef');
+    md5sumMock
+      .mockResolvedValueOnce('deadbeef') // pre-download check: existing file is wrong
+      .mockResolvedValue('aabbccdd'); // post-download check: newly downloaded file is correct
     const b = new Bundle('k', makeData(), makeOptions());
     const result = await b.download();
     expect(renameMock).toHaveBeenCalled();
     expect(streamToFileMock).toHaveBeenCalled();
     expect(result.newFiles).toBe(1);
+    expect(result.errors).toBe(0);
+  });
+
+  it('returns error and moves file to old/ when post-download md5 mismatches', async () => {
+    md5sumMock.mockResolvedValue('differenthash');
+    const b = new Bundle('k', makeData(), makeOptions());
+    const result = await b.download();
+    expect(result.errors).toBe(1);
+    expect(result.newFiles).toBe(0);
+    expect(renameMock).toHaveBeenCalled();
+    expect(appendFileMock).toHaveBeenCalledWith(
+      expect.stringContaining('errors.txt'),
+      expect.stringContaining('Checksum mismatch'),
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -346,7 +365,7 @@ describe('Bundle.download', () => {
     expect(streamToFileMock).toHaveBeenCalledWith(
       expect.stringContaining('horror.pdf'),
       expect.any(String),
-      'test-cookie',
+      '_simpleauth_sess=test-cookie',
     );
   });
 
@@ -379,12 +398,14 @@ describe('Bundle.download', () => {
     );
   });
 
-  it('logs checksum mismatch message after download if md5 differs', async () => {
+  it('logs checksum mismatch message and returns error when post-download md5 differs', async () => {
     const logger = vi.fn();
     md5sumMock.mockResolvedValue('differenthash');
     const b = new Bundle('k', makeData(), makeOptions({ logger }));
-    await b.download();
-    expect(logger).toHaveBeenCalledWith(expect.stringMatching(/md5 mismatch/i));
+    const result = await b.download();
+    expect(logger).toHaveBeenCalledWith(expect.stringMatching(/checksum mismatch after download/i));
+    expect(result.errors).toBe(1);
+    expect(result.newFiles).toBe(0);
   });
 
   // -------------------------------------------------------------------------

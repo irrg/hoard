@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'fs';
-import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
+import { writeFile, readFile, mkdir, rename, unlink, appendFile } from 'fs/promises';
 import path from 'path';
 
 import { streamToFile, md5sum, cleanPath, runConcurrently } from './utils.js';
@@ -200,7 +200,14 @@ export class Bundle {
 
     try {
       this.options.logger(`Downloading ${this.name} / ${productName} - ${filename}`);
-      await streamToFile(item.url.web, outFile, this.options.cookie);
+      const partialPath = outFile + '.partial';
+      try {
+        await streamToFile(item.url.web, partialPath, `_simpleauth_sess=${this.options.cookie}`);
+        await rename(partialPath, outFile);
+      } catch (e) {
+        await unlink(partialPath).catch(() => {});
+        throw e;
+      }
       this.options.logger(`Downloaded ${filename}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -217,12 +224,23 @@ export class Bundle {
     const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
       const computed = await md5sum(outFile);
+      if (computed !== apiMd5) {
+        const oldDir = path.join(path.dirname(outFile), 'old');
+        await mkdir(oldDir, { recursive: true });
+        const stamp = new Date().toISOString().split('T')[0];
+        await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
+        this.options.logger(`Checksum mismatch after download: ${filename}`);
+        const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
+        await mkdir(path.dirname(errorsFile), { recursive: true });
+        await appendFile(
+          errorsFile,
+          `Checksum mismatch: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n---\n`,
+        );
+        return 'error';
+      }
       const md5Out = sidecarPath(this.outputDir, outFile);
       await mkdir(path.dirname(md5Out), { recursive: true });
       await writeFile(md5Out, apiMd5);
-      if (computed !== apiMd5) {
-        this.options.logger(`MD5 mismatch after download: ${filename}`);
-      }
     }
 
     return 'downloaded';

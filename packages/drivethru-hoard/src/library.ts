@@ -2,6 +2,8 @@ import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
+import type { RunTask } from '@irrg/hoard-core';
+
 import { API_BASE, exchangeKey } from './auth.js';
 import { Product, ProductData, ProductOptions } from './product.js';
 import { fetchWithRetry, runConcurrently } from './utils.js';
@@ -17,6 +19,7 @@ export interface LibraryOptions {
   filters: string[];
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
+  runTask?: RunTask;
 }
 
 interface PageCacheMeta {
@@ -36,6 +39,7 @@ export class Library {
   private productOptions: ProductOptions;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
+  private runTask?: RunTask;
 
   constructor(options: LibraryOptions) {
     this.apiKey = options.apiKey;
@@ -44,6 +48,7 @@ export class Library {
     this.filters = options.filters.map((f) => f.toLowerCase());
     this.logger = options.logger ?? (() => {});
     this.onProgress = options.onProgress;
+    this.runTask = options.runTask;
     this.productOptions = {
       outputDir: options.outputDir,
       compat: options.compat,
@@ -195,7 +200,11 @@ export class Library {
       this.onProgress?.(done + errors, total, downloaded);
     });
 
-    await runConcurrently(tasks, this.jobs);
+    if (this.runTask) {
+      await Promise.all(tasks.map((task) => this.runTask!(task)));
+    } else {
+      await runConcurrently(tasks, this.jobs);
+    }
     return { downloaded, errors };
   }
 }

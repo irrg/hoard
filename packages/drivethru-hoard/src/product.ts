@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'fs';
-import { writeFile, readFile, mkdir, rename, appendFile, stat } from 'fs/promises';
+import { writeFile, readFile, mkdir, rename, unlink, appendFile, stat } from 'fs/promises';
 import path, { dirname, relative } from 'path';
 
 import { API_BASE } from './auth.js';
@@ -159,7 +159,14 @@ export class Product {
 
     try {
       this.options.logger(`Downloading ${this.name} - ${filename}`);
-      await streamToFile(url, outFile);
+      const partialPath = outFile + '.partial';
+      try {
+        await streamToFile(url, partialPath);
+        await rename(partialPath, outFile);
+      } catch (e) {
+        await unlink(partialPath).catch(() => {});
+        throw e;
+      }
       this.options.logger(`Downloaded ${filename}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -170,12 +177,18 @@ export class Product {
 
     if (apiChecksum) {
       const computed = await md5sum(outFile);
+      if (computed !== apiChecksum) {
+        const oldDir = path.join(this.dir, 'old');
+        await mkdir(oldDir, { recursive: true });
+        const timestamp = new Date().toISOString().split('T')[0];
+        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+        this.options.logger(`Checksum mismatch after download: ${filename}`);
+        await this._logError(outFile, filename, url, 'checksum mismatch after download');
+        return false;
+      }
       const md5File = sidecarPath(this.outputDir, outFile);
       await mkdir(dirname(md5File), { recursive: true });
       await writeFile(md5File, apiChecksum);
-      if (computed !== apiChecksum) {
-        this.options.logger(`Failed to verify ${filename}`);
-      }
     }
 
     return true;

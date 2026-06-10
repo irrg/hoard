@@ -12,6 +12,7 @@ vi.mock('fs/promises', () => ({
   mkdir: vi.fn(),
   rename: vi.fn(),
   appendFile: vi.fn(),
+  unlink: vi.fn(),
   stat: vi.fn(),
 }));
 
@@ -274,6 +275,7 @@ describe('Product.doDownload', () => {
     const item = makeItem({
       checksums: [{ checksum: 'new-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
     });
+    md5sumMock.mockResolvedValue('new-checksum'); // post-download matches api checksum
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
     expect(result).toBe(true);
@@ -313,15 +315,27 @@ describe('Product.doDownload', () => {
     expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
-  it('still writes md5 sidecar when computed hash does not match api checksum', async () => {
+  it('moves file to old/, logs error, and returns false when post-download checksum mismatches', async () => {
     existsSyncMock.mockReturnValue(false);
     md5sumMock.mockResolvedValue('wrong-hash');
     const item = makeItem({
       checksums: [{ checksum: 'expected-hash', checksumDate: '2024-01-01T00:00:00Z' }],
     });
     const p = makeProduct({ files: [item] });
-    await p.doDownload(item, 'tok', 'my-rpg.pdf');
-    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
+    const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
+    expect(result).toBe(false);
+    expect(renameMock).toHaveBeenCalledWith(
+      expect.stringContaining('my-rpg.pdf'),
+      expect.stringContaining('old'),
+    );
+    expect(writeFileMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('.md5'),
+      expect.any(String),
+    );
+    expect(appendFileMock).toHaveBeenCalledWith(
+      expect.stringContaining('errors.txt'),
+      expect.stringContaining('checksum mismatch'),
+    );
   });
 
   it('does not write md5 sidecar when no checksum is available', async () => {

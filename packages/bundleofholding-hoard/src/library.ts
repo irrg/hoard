@@ -1,6 +1,8 @@
 import { existsSync, readdirSync } from 'fs';
-import { appendFile, mkdir, readFile, rename, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'fs/promises';
 import { dirname, extname, join, relative } from 'path';
+
+import type { RunTask } from '@irrg/hoard-core';
 
 import { fetchBundlePage, type DownloadFile } from './bundle.js';
 import { type BundleRef } from './cabinet.js';
@@ -16,6 +18,7 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
+  runTask?: RunTask;
 }
 
 export class Library {
@@ -28,6 +31,7 @@ export class Library {
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
   private onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
+  private runTask?: RunTask;
 
   constructor(opts: LibraryOptions) {
     this.outputDir = opts.outputDir;
@@ -38,6 +42,7 @@ export class Library {
     this.deep = opts.deep ?? false;
     this.logger = opts.logger ?? (() => {});
     this.onProgress = opts.onProgress;
+    this.runTask = opts.runTask;
     this.onLoadPage = opts.onLoadPage;
   }
 
@@ -119,7 +124,11 @@ export class Library {
         this.onProgress?.(++filesDone, total, downloaded);
       });
 
-      await runConcurrently(tasks, this.jobs);
+      if (this.runTask) {
+        await Promise.all(tasks.map((task) => this.runTask!(task)));
+      } else {
+        await runConcurrently(tasks, this.jobs);
+      }
       if (bundleHadNewFiles) downloaded++;
     }
 
@@ -186,17 +195,34 @@ export class Library {
       }
 
       this.logger(`Downloading ${filename}`);
-      await streamToFile(file.url, outPath, this.cookie);
+      const partialPath = outPath + '.partial';
+      try {
+        await streamToFile(file.url, partialPath, this.cookie);
+        await rename(partialPath, outPath);
+      } catch (e) {
+        await unlink(partialPath).catch(() => {});
+        throw e;
+      }
       this.logger(`Downloaded ${filename}`);
 
       if (file.md5) {
         const actual = await md5sum(outPath);
-        if (actual === file.md5) {
-          await mkdir(dirname(sidePath), { recursive: true });
-          await writeFile(sidePath, file.md5);
-        } else {
-          this.logger(`Failed to verify ${filename}`);
+        if (actual !== file.md5) {
+          const oldDir = join(dir, 'old');
+          await mkdir(oldDir, { recursive: true });
+          const timestamp = new Date().toISOString().split('T')[0];
+          await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
+          this.logger(`Checksum mismatch after download: ${filename}`);
+          const dataDir = join(this.outputDir, '.data');
+          await mkdir(dataDir, { recursive: true });
+          await appendFile(
+            join(dataDir, 'errors.txt'),
+            `${bundleName} - ${filename}: checksum mismatch after download\n`,
+          );
+          return 'error';
         }
+        await mkdir(dirname(sidePath), { recursive: true });
+        await writeFile(sidePath, file.md5);
       }
 
       return 'downloaded';
@@ -228,7 +254,5 @@ function hasFiles(dir: string): boolean {
 
 function sidecarPath(outputDir: string, filePath: string): string {
   const rel = relative(outputDir, filePath);
-  const ext = extname(rel);
-  const base = ext ? rel.slice(0, -ext.length) : rel;
-  return join(outputDir, '.data', base + '.md5');
+  return join(outputDir, '.data', rel + '.md5');
 }

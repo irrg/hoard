@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import { fetchCabinet, Library as BoHLibrary, loginWeb } from '@irrg/bundleofholding-hoard';
 import { Library as DrivethruLibrary } from '@irrg/drivethru-hoard';
+import { Scheduler } from '@irrg/hoard-core';
 import { Library as HumbleLibrary } from '@irrg/humblebundle-hoard';
 import { Library as ItchioLibrary, loginAPI as itchioLogin } from '@irrg/itchio-hoard';
 import cliProgress from 'cli-progress';
@@ -45,6 +46,7 @@ async function syncItchio(
   deep: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
+  runTask: (t: () => Promise<void>) => Promise<void>,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
     return { ok: 'skip' };
@@ -65,6 +67,7 @@ async function syncItchio(
         bar.update(done, { status: barStatus(done, total, downloaded) });
       },
       deep,
+      runTask,
     );
     await lib.loadOwnedGames();
     lastTotal = lib.games.length;
@@ -84,6 +87,7 @@ async function syncDrivethru(
   deep: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
+  runTask: (t: () => Promise<void>) => Promise<void>,
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: 'skip' };
   try {
@@ -98,6 +102,7 @@ async function syncDrivethru(
       deep,
       filters: [],
       logger,
+      runTask,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -122,6 +127,7 @@ async function syncHumblebundle(
   deep: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
+  runTask: (t: () => Promise<void>) => Promise<void>,
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: 'skip' };
   try {
@@ -136,6 +142,7 @@ async function syncHumblebundle(
       deep,
       filters: [],
       logger,
+      runTask,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -159,6 +166,7 @@ async function syncBundleofholding(
   deep: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
+  runTask: (t: () => Promise<void>) => Promise<void>,
 ): Promise<SyncResult> {
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
@@ -182,6 +190,7 @@ async function syncBundleofholding(
       cookie,
       filters: [],
       logger,
+      runTask,
       onLoadPage: (loaded, total, filesFound) => {
         bar.update(0, { status: `loading ${loaded}/${total}, ${filesFound} files` });
       },
@@ -210,6 +219,9 @@ export async function cmdSync(
   deep = false,
   verbose = false,
 ): Promise<boolean> {
+  const scheduler = new Scheduler(jobs);
+  const runTask = (t: () => Promise<void>) => scheduler.run(t);
+
   function makeLogger(sf: Storefront): (msg: string) => void {
     return verbose ? (msg) => console.log(`[${sf}] ${msg}`) : () => {};
   }
@@ -244,16 +256,16 @@ export async function cmdSync(
       let result: SyncResult;
       switch (sf) {
         case 'itchio':
-          result = await syncItchio(config, outputDir, jobs, deep, bar, logger);
+          result = await syncItchio(config, outputDir, jobs, deep, bar, logger, runTask);
           break;
         case 'drivethru':
-          result = await syncDrivethru(config, outputDir, jobs, deep, bar, logger);
+          result = await syncDrivethru(config, outputDir, jobs, deep, bar, logger, runTask);
           break;
         case 'humblebundle':
-          result = await syncHumblebundle(config, outputDir, jobs, deep, bar, logger);
+          result = await syncHumblebundle(config, outputDir, jobs, deep, bar, logger, runTask);
           break;
         case 'bundleofholding':
-          result = await syncBundleofholding(config, outputDir, jobs, deep, bar, logger);
+          result = await syncBundleofholding(config, outputDir, jobs, deep, bar, logger, runTask);
           break;
       }
       const statusMsg =

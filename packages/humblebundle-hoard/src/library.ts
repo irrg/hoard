@@ -2,6 +2,8 @@ import { existsSync, readdirSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
+import type { RunTask } from '@irrg/hoard-core';
+
 import { Bundle, BundleData, BundleOptions } from './bundle.js';
 import { fetchWithRetry, runConcurrently } from './utils.js';
 
@@ -20,6 +22,7 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   deep?: boolean;
+  runTask?: RunTask;
 }
 
 interface CachedOrder {
@@ -33,6 +36,7 @@ export class Library {
   private bundleOptions: BundleOptions;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
+  private runTask?: RunTask;
   bundles: Bundle[];
 
   constructor(options: LibraryOptions) {
@@ -41,6 +45,7 @@ export class Library {
     this.bundles = [];
     this.logger = options.logger ?? (() => {});
     this.onProgress = options.onProgress;
+    this.runTask = options.runTask;
     this.bundleOptions = {
       cookie: options.cookie,
       outputDir: options.outputDir,
@@ -183,7 +188,11 @@ export class Library {
       });
     });
 
-    await runConcurrently(tasks, this.jobs);
+    if (this.runTask) {
+      await Promise.all(tasks.map((task) => this.runTask!(task)));
+    } else {
+      await runConcurrently(tasks, this.jobs);
+    }
     return { downloaded, errors };
   }
 }
@@ -191,7 +200,7 @@ export class Library {
 function hasFiles(dir: string): boolean {
   if (!existsSync(dir)) return false;
   try {
-    return readdirSync(dir).some((e) => !String(e).startsWith('.'));
+    return readdirSync(dir).some((e) => !String(e).startsWith('.') && e !== 'old');
   } catch {
     return false;
   }

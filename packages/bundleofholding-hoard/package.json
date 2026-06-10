@@ -4,13 +4,13 @@
   "license": "BSD-3-Clause",
   "homepage": "https://github.com/irrg/hoard",
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "development": "./src/index.ts",
-      "import": "./dist/src/index.js",
-      "types": "./dist/src/index.d.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "files": [
@@ -19,8 +19,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "tsc",
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint src tests",
@@ -33,6 +33,9 @@
   },
   "dependencies": {
     "node-html-parser": "^7.0.0"
+  },
+  "devDependencies": {
+    "@irrg/hoard-core": "workspace:*"
   },
   "repository": {
     "type": "git",
