@@ -4,13 +4,13 @@
   "license": "BSD-3-Clause",
   "homepage": "https://github.com/irrg/hoard",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
     ".": {
       "development": "./src/index.ts",
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
     }
   },
   "files": [
@@ -19,16 +19,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup",
-    "prepublishOnly": "pnpm build",
+    "build": "tsc",
+    "prepublishOnly": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint src tests",
     "fmt": "oxfmt src tests",
     "fmt:check": "oxfmt --check src tests"
-  },
-  "devDependencies": {
-    "@irrg/hoard-core": "workspace:*"
   },
   "publishConfig": {
     "access": "public",
@@ -38,5 +35,8 @@
     "type": "git",
     "url": "git+https://github.com/irrg/hoard.git",
     "directory": "packages/humblebundle-hoard"
+  },
+  "dependencies": {
+    "@irrg/hoard-core": "workspace:*"
   }
 }

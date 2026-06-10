@@ -66,30 +66,29 @@ importers:
 
   packages/bundleofholding-hoard:
     dependencies:
-      node-html-parser:
-        specifier: ^7.0.0
-        version: 7.1.0
-    devDependencies:
       '@irrg/hoard-core':
         specifier: workspace:*
         version: link:../core
+      node-html-parser:
+        specifier: ^7.0.0
+        version: 7.1.0
 
   packages/core: {}
 
   packages/drivethru-hoard:
-    devDependencies:
+    dependencies:
       '@irrg/hoard-core':
         specifier: workspace:*
         version: link:../core
 
   packages/humblebundle-hoard:
-    devDependencies:
+    dependencies:
       '@irrg/hoard-core':
         specifier: workspace:*
         version: link:../core
 
   packages/itchio-hoard:
-    devDependencies:
+    dependencies:
       '@irrg/hoard-core':
         specifier: workspace:*
         version: link:../core

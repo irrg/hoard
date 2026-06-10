@@ -1,7 +1,6 @@
 {
   "name": "@irrg/hoard-core",
   "version": "0.1.0",
-  "private": true,
   "license": "BSD-3-Clause",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -20,5 +19,9 @@
     "lint": "oxlint src tests",
     "fmt": "oxfmt src tests",
     "fmt:check": "oxfmt --check src tests"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
