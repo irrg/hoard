@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from 'fs';
-import { writeFile, readFile, mkdir, rename, appendFile } from 'fs/promises';
+import { writeFile, readFile, mkdir, rename, unlink, appendFile } from 'fs/promises';
 import path from 'path';
 
 import { cleanPath, download, fetchWithRetry, md5sum, NoDownloadError } from './utils.js';
@@ -95,23 +95,33 @@ export class Game {
       : `https://api.itch.io/games/${this.gameId}/uploads`;
 
     const r = await fetchWithRetry(url, { headers: { Authorization: token } }, 3, this.logger);
-    let j: { uploads: Upload[] };
 
+    if (!r.ok) {
+      throw new Error(`Failed to load downloads for ${this.name}: HTTP ${r.status}`);
+    }
+
+    let j: { uploads: Upload[] };
     try {
       j = (await r.json()) as { uploads: Upload[] };
     } catch {
-      this.logger(`Failed to load downloads for ${this.name} (HTTP ${r.status}), skipping`);
-      return;
+      throw new Error(`Failed to parse downloads for ${this.name}`);
     }
 
     this.downloads = Array.isArray(j.uploads) ? j.uploads : [];
   }
 
-  async download(token: string, platform?: string): Promise<boolean> {
-    if (!this.deep && hasFiles(this.dir)) return false;
+  async download(token: string, platform?: string): Promise<{ newFiles: number; errors: number }> {
+    if (!this.deep && hasFiles(this.dir)) return { newFiles: 0, errors: 0 };
     this.logger(`Downloading ${this.name}`);
 
-    await this.loadDownloads(token);
+    try {
+      await this.loadDownloads(token);
+    } catch (e) {
+      this.logger(
+        `Failed to load downloads for ${this.name}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return { newFiles: 0, errors: 1 };
+    }
 
     const eligible = this.downloads.filter((d) => {
       if (platform != null && Array.isArray(d.traits)) {
@@ -126,7 +136,7 @@ export class Game {
       return true;
     });
 
-    if (eligible.length === 0) return false;
+    if (eligible.length === 0) return { newFiles: 0, errors: 0 };
 
     await mkdir(this.dir, { recursive: true });
 
@@ -140,15 +150,18 @@ export class Game {
     }
 
     let wrote = 0;
+    let errors = 0;
     for (const d of eligible) {
       const base = cleanPath(d.filename ?? d.display_name ?? String(d.id));
       const key = base.toLowerCase();
       const group = filenameGroups.get(key)!;
       const filename = group.length > 1 ? disambiguateFilename(base, d.id) : base;
-      if (await this.doDownload(d, token, filename)) wrote++;
+      const result = await this.doDownload(d, token, filename);
+      if (result === 'downloaded') wrote++;
+      else if (result === 'error') errors++;
     }
 
-    if (wrote === 0) return false;
+    if (wrote === 0) return { newFiles: 0, errors };
 
     const manifestPath = path.join(
       this.outputDir,
@@ -171,16 +184,20 @@ export class Game {
         2,
       ),
     );
-    return true;
+    return { newFiles: wrote, errors };
   }
 
-  async doDownload(d: Upload, token: string, filename: string): Promise<boolean> {
+  async doDownload(
+    d: Upload,
+    token: string,
+    filename: string,
+  ): Promise<'downloaded' | 'skipped' | 'error'> {
     const outFile = path.join(this.dir, filename);
     const md5Hash = d.md5_hash?.toLowerCase();
 
     if (this.dryRun) {
       this.logger(`Dry run: ${this.name} - ${filename}`);
-      return false;
+      return 'skipped';
     }
 
     this.logger(`Downloading ${filename}`);
@@ -190,16 +207,16 @@ export class Game {
 
       if (!md5Hash) {
         this.logger(`Skipping ${this.name} - ${filename}`);
-        return false;
+        return 'skipped';
       }
 
       const md5File = sidecarPath(this.outputDir, outFile);
 
-      if (existsSync(md5File)) {
+      if (existsSync(md5File) && !this.deep) {
         const storedMd5 = (await readFile(md5File, 'utf8')).trim();
         if (storedMd5 === md5Hash) {
           this.logger(`Skipping ${this.name} - ${filename}`);
-          return false;
+          return 'skipped';
         }
         this.logger(`Checksum mismatch: ${filename}`);
       } else {
@@ -208,7 +225,7 @@ export class Game {
           this.logger(`Skipping ${this.name} - ${filename}`);
           await mkdir(path.dirname(md5File), { recursive: true });
           await writeFile(md5File, md5Hash);
-          return false;
+          return 'skipped';
         }
       }
 
@@ -216,7 +233,11 @@ export class Game {
       await mkdir(oldDir, { recursive: true });
 
       this.logger(`Moving ${filename} to old/`);
-      const timestamp = new Date().toISOString().split('T')[0];
+      const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+        Math.random() * 0x10000,
+      )
+        .toString(16)
+        .padStart(4, '0')}`;
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
 
@@ -238,23 +259,26 @@ export class Game {
       this.logger(
         `Failed to start download session for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`,
       );
-      return false;
+      return 'error';
     }
 
     if (!sessionJson.uuid) {
       this.logger(
         `No session UUID for ${this.name} (HTTP ${sessionResp.status}), skipping ${filename}`,
       );
-      return false;
+      return 'error';
     }
 
     const downloadUrl = this.id
       ? `https://api.itch.io/uploads/${d.id}/download?api_key=${token}&download_key_id=${this.id}&uuid=${sessionJson.uuid}`
       : `https://api.itch.io/uploads/${d.id}/download?api_key=${token}&uuid=${sessionJson.uuid}`;
 
+    const partialFilename = filename + '.partial';
+    const partialPath = path.join(this.dir, partialFilename);
     try {
-      await download(downloadUrl, this.dir, this.name, filename, this.logger);
+      await download(downloadUrl, this.dir, this.name, partialFilename, this.logger);
     } catch (e) {
+      await unlink(partialPath).catch(() => {});
       if (e instanceof NoDownloadError) {
         this.logger(`HTTP response is not a download, skipping`);
         await this._logError(
@@ -263,7 +287,7 @@ export class Game {
           downloadUrl,
           'Missing content-disposition header — skipped, please download manually',
         );
-        return false;
+        return 'error';
       }
 
       if (e instanceof Error) {
@@ -275,29 +299,31 @@ export class Game {
           downloadUrl,
           `Code: ${code}, reason: ${e.message} — skipped, please download manually`,
         );
-        return false;
+        return 'error';
       }
 
       throw e;
     }
 
     if (md5Hash) {
-      const computed = await md5sum(outFile);
+      const computed = await md5sum(partialPath);
       if (computed !== md5Hash) {
-        const oldDir = path.join(this.dir, 'old');
-        await mkdir(oldDir, { recursive: true });
-        const timestamp = new Date().toISOString().split('T')[0];
-        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+        await unlink(partialPath).catch(() => {});
         this.logger(`Checksum mismatch after download: ${filename}`);
         await this._logError(outFile, filename, '', 'checksum mismatch after download');
-        return false;
+        return 'error';
       }
+    }
+
+    await rename(partialPath, outFile);
+
+    if (md5Hash) {
       const md5File = sidecarPath(this.outputDir, outFile);
       await mkdir(path.dirname(md5File), { recursive: true });
       await writeFile(md5File, md5Hash);
     }
 
-    return true;
+    return 'downloaded';
   }
 
   private async _logError(

@@ -189,15 +189,15 @@ export class Library {
     const total = products.length;
     const tasks = products.map((p) => async () => {
       try {
-        const wrote = await p.download(this.bearerToken);
-        done++;
-        if (wrote) downloaded++;
-        this.logger(`Downloaded ${p.name} (${done} of ${total})`);
+        const result = await p.download(this.bearerToken);
+        if (result.newFiles > 0) downloaded++;
+        errors += result.errors;
+        this.logger(`Downloaded ${p.name} (${done + 1} of ${total})`);
       } catch (e) {
         errors++;
         this.logger(`Error downloading ${p.name}: ${e instanceof Error ? e.message : e}`);
       }
-      this.onProgress?.(done + errors, total, downloaded);
+      this.onProgress?.(++done, total, downloaded);
     });
 
     if (this.runTask) {

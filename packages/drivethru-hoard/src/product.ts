@@ -55,9 +55,9 @@ export class Product {
       : path.join(options.outputDir, pub, prod);
   }
 
-  async download(bearerToken: string): Promise<boolean> {
-    if (this.data.files.length === 0) return false;
-    if (!this.options.deep && hasFiles(this.dir)) return false;
+  async download(bearerToken: string): Promise<{ newFiles: number; errors: number }> {
+    if (this.data.files.length === 0) return { newFiles: 0, errors: 0 };
+    if (!this.options.deep && hasFiles(this.dir)) return { newFiles: 0, errors: 0 };
 
     this.options.logger(`Downloading ${this.name}`);
 
@@ -71,15 +71,18 @@ export class Product {
     }
 
     let wrote = 0;
+    let errors = 0;
     for (const item of this.data.files) {
       const base = normalizePathPart(item.filename, this.options.compat);
       const key = base.toLowerCase();
       const group = filenameGroups.get(key)!;
       const filename = group.length > 1 ? disambiguateFilename(base, item.index) : base;
-      if (await this.doDownload(item, bearerToken, filename)) wrote++;
+      const result = await this.doDownload(item, bearerToken, filename);
+      if (result === 'downloaded') wrote++;
+      else if (result === 'error') errors++;
     }
 
-    if (wrote === 0) return false;
+    if (wrote === 0) return { newFiles: 0, errors };
 
     const manifestPath = path.join(
       this.outputDir,
@@ -102,30 +105,39 @@ export class Product {
       ),
     );
 
-    return true;
+    return { newFiles: wrote, errors };
   }
 
   async doDownload(
     item: DownloadItemData,
     bearerToken: string,
     filename: string,
-  ): Promise<boolean> {
+  ): Promise<'downloaded' | 'skipped' | 'error'> {
     const outFile = path.join(this.dir, filename);
     const apiChecksum = newestChecksum(item);
 
     if (this.options.dryRun) {
       this.options.logger(`Dry run: ${this.name} - ${filename}`);
-      return false;
+      return 'skipped';
     }
 
     if (existsSync(outFile)) {
       this.options.logger(`File already exists: ${filename}`);
       const md5File = sidecarPath(this.outputDir, outFile);
-      if (apiChecksum && existsSync(md5File)) {
+      if (apiChecksum && existsSync(md5File) && !this.options.deep) {
         const stored = (await readFile(md5File, 'utf8')).trim();
         if (stored === apiChecksum) {
           this.options.logger(`Skipping ${this.name} - ${filename}`);
-          return false;
+          return 'skipped';
+        }
+        this.options.logger(`Checksum mismatch: ${filename}`);
+      } else if (apiChecksum) {
+        const computed = await md5sum(outFile);
+        if (computed === apiChecksum) {
+          await mkdir(path.dirname(md5File), { recursive: true });
+          await writeFile(md5File, apiChecksum);
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
+          return 'skipped';
         }
         this.options.logger(`Checksum mismatch: ${filename}`);
       } else {
@@ -133,14 +145,18 @@ export class Product {
         const fileStat = await stat(outFile);
         if (remoteTime <= fileStat.mtimeMs) {
           this.options.logger(`Skipping ${this.name} - ${filename}`);
-          return false;
+          return 'skipped';
         }
         this.options.logger(`File outdated: ${filename}`);
       }
 
       const oldDir = path.join(this.dir, 'old');
       await mkdir(oldDir, { recursive: true });
-      const timestamp = new Date().toISOString().split('T')[0];
+      const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+        Math.random() * 0x10000,
+      )
+        .toString(16)
+        .padStart(4, '0')}`;
       this.options.logger(`Moving ${filename} to old/`);
       await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
     }
@@ -154,44 +170,41 @@ export class Product {
       const msg = e instanceof Error ? e.message : String(e);
       this.options.logger(`Could not get download link for ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, '', msg);
-      return false;
+      return 'error';
     }
 
+    this.options.logger(`Downloading ${this.name} - ${filename}`);
+    const partialPath = outFile + '.partial';
     try {
-      this.options.logger(`Downloading ${this.name} - ${filename}`);
-      const partialPath = outFile + '.partial';
-      try {
-        await streamToFile(url, partialPath);
-        await rename(partialPath, outFile);
-      } catch (e) {
-        await unlink(partialPath).catch(() => {});
-        throw e;
-      }
-      this.options.logger(`Downloaded ${filename}`);
+      await streamToFile(url, partialPath);
     } catch (e) {
+      await unlink(partialPath).catch(() => {});
       const msg = e instanceof Error ? e.message : String(e);
       this.options.logger(`Download failed: ${this.name} - ${filename}: ${msg}`);
       await this._logError(outFile, filename, url, msg);
-      return false;
+      return 'error';
     }
+    this.options.logger(`Downloaded ${filename}`);
 
     if (apiChecksum) {
-      const computed = await md5sum(outFile);
+      const computed = await md5sum(partialPath);
       if (computed !== apiChecksum) {
-        const oldDir = path.join(this.dir, 'old');
-        await mkdir(oldDir, { recursive: true });
-        const timestamp = new Date().toISOString().split('T')[0];
-        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+        await unlink(partialPath).catch(() => {});
         this.options.logger(`Checksum mismatch after download: ${filename}`);
         await this._logError(outFile, filename, url, 'checksum mismatch after download');
-        return false;
+        return 'error';
       }
+    }
+
+    await rename(partialPath, outFile);
+
+    if (apiChecksum) {
       const md5File = sidecarPath(this.outputDir, outFile);
       await mkdir(dirname(md5File), { recursive: true });
       await writeFile(md5File, apiChecksum);
     }
 
-    return true;
+    return 'downloaded';
   }
 
   private async _prepareDownloadUrl(item: DownloadItemData, bearerToken: string): Promise<string> {

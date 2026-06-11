@@ -15,6 +15,7 @@ import { NoDownloadError } from '../src/utils.js';
 function mockResponse(body: unknown, status = 200) {
   return {
     status,
+    ok: status < 400,
     json: async () => body,
   } as unknown as Response;
 }
@@ -78,16 +79,22 @@ describe('Library', () => {
       expect(await lib.loadGamePage(1)).toBe(0);
     });
 
-    it('returns 0 and logs on JSON parse failure', async () => {
+    it('throws on JSON parse failure', async () => {
       fetchMock.mockResolvedValueOnce({
-        status: 500,
+        status: 200,
+        ok: true,
         json: async () => {
           throw new SyntaxError('bad json');
         },
       } as unknown as Response);
-      const lib = new Library('tok');
-      expect(await lib.loadGamePage(1)).toBe(0);
-      expect(lib.games).toHaveLength(0);
+      await expect(new Library('tok').loadGamePage(1)).rejects.toThrow(
+        'Failed to parse page 1 response',
+      );
+    });
+
+    it('throws on non-ok HTTP response', async () => {
+      fetchMock.mockResolvedValueOnce({ status: 401, ok: false, json: async () => ({}) });
+      await expect(new Library('tok').loadGamePage(1)).rejects.toThrow('HTTP 401');
     });
 
     it('sends the Authorization header', async () => {
@@ -164,7 +171,7 @@ describe('Library', () => {
         name: 'Fake Game',
         download:
           fail === 'none'
-            ? vi.fn().mockResolvedValue(true)
+            ? vi.fn().mockResolvedValue({ newFiles: 1, errors: 0 })
             : fail === 'download'
               ? vi.fn().mockRejectedValue(new NoDownloadError('nope'))
               : vi.fn().mockRejectedValue(new Error('unexpected')),
@@ -187,10 +194,25 @@ describe('Library', () => {
       expect(result.errors).toBe(1);
     });
 
-    it('propagates unexpected errors', async () => {
+    it('counts unexpected errors without crashing', async () => {
       const lib = new Library('tok');
       lib.games = [fakeGame('other')];
-      await expect(lib.downloadLibrary()).rejects.toThrow('unexpected');
+      const result = await lib.downloadLibrary();
+      expect(result.errors).toBe(1);
+      expect(result.downloaded).toBe(0);
+    });
+
+    it('propagates per-file errors from game download into result', async () => {
+      const lib = new Library('tok');
+      lib.games = [
+        {
+          name: 'G',
+          download: vi.fn().mockResolvedValue({ newFiles: 0, errors: 2 }),
+        } as unknown as import('../src/game.js').Game,
+      ];
+      const result = await lib.downloadLibrary();
+      expect(result.errors).toBe(2);
+      expect(result.downloaded).toBe(0);
     });
 
     it('passes platform filter through to game.download', async () => {
@@ -216,11 +238,17 @@ describe('Library', () => {
 
     it('returns null on JSON parse failure', async () => {
       fetchMock.mockResolvedValueOnce({
-        status: 500,
+        status: 200,
+        ok: true,
         json: async () => {
           throw new SyntaxError('bad');
         },
       } as unknown as Response);
+      await expect(new Library('tok').getProfile()).resolves.toBeNull();
+    });
+
+    it('returns null on non-ok HTTP response', async () => {
+      fetchMock.mockResolvedValueOnce({ status: 401, ok: false, json: async () => ({}) });
       await expect(new Library('tok').getProfile()).resolves.toBeNull();
     });
 
@@ -251,11 +279,17 @@ describe('Library', () => {
 
     it('returns empty array on JSON parse failure', async () => {
       fetchMock.mockResolvedValueOnce({
-        status: 500,
+        status: 200,
+        ok: true,
         json: async () => {
           throw new SyntaxError('bad');
         },
       } as unknown as Response);
+      await expect(new Library('tok').loadCollections()).resolves.toEqual([]);
+    });
+
+    it('returns empty array on non-ok HTTP response', async () => {
+      fetchMock.mockResolvedValueOnce({ status: 403, ok: false, json: async () => ({}) });
       await expect(new Library('tok').loadCollections()).resolves.toEqual([]);
     });
 
@@ -313,11 +347,21 @@ describe('Library', () => {
       fetchMock
         .mockResolvedValueOnce(mockResponse({ collection_games: [collectionGame(1)] }))
         .mockResolvedValueOnce({
-          status: 500,
+          status: 200,
+          ok: true,
           json: async () => {
             throw new SyntaxError('bad');
           },
         } as unknown as Response);
+      const lib = new Library('tok');
+      await lib.loadCollection(42);
+      expect(lib.games).toHaveLength(1);
+    });
+
+    it('stops on non-ok HTTP response and keeps already-loaded games', async () => {
+      fetchMock
+        .mockResolvedValueOnce(mockResponse({ collection_games: [collectionGame(1)] }))
+        .mockResolvedValueOnce({ status: 500, ok: false, json: async () => ({}) });
       const lib = new Library('tok');
       await lib.loadCollection(42);
       expect(lib.games).toHaveLength(1);
@@ -364,11 +408,17 @@ describe('Library', () => {
 
     it('returns empty array on JSON parse failure', async () => {
       fetchMock.mockResolvedValueOnce({
-        status: 500,
+        status: 200,
+        ok: true,
         json: async () => {
           throw new SyntaxError('bad');
         },
       } as unknown as Response);
+      await expect(new Library('tok').loadBundles()).resolves.toEqual([]);
+    });
+
+    it('returns empty array on non-ok HTTP response', async () => {
+      fetchMock.mockResolvedValueOnce({ status: 401, ok: false, json: async () => ({}) });
       await expect(new Library('tok').loadBundles()).resolves.toEqual([]);
     });
 
@@ -424,11 +474,21 @@ describe('Library', () => {
       fetchMock
         .mockResolvedValueOnce(mockResponse({ bundle_games: [bundleGame(1)] }))
         .mockResolvedValueOnce({
-          status: 500,
+          status: 200,
+          ok: true,
           json: async () => {
             throw new SyntaxError('bad');
           },
         } as unknown as Response);
+      const lib = new Library('tok');
+      await lib.loadBundle(42);
+      expect(lib.games).toHaveLength(1);
+    });
+
+    it('stops on non-ok HTTP response and keeps already-loaded games', async () => {
+      fetchMock
+        .mockResolvedValueOnce(mockResponse({ bundle_games: [bundleGame(1)] }))
+        .mockResolvedValueOnce({ status: 500, ok: false, json: async () => ({}) });
       const lib = new Library('tok');
       await lib.loadBundle(42);
       expect(lib.games).toHaveLength(1);

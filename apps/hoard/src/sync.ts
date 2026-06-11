@@ -148,12 +148,14 @@ async function syncHumblebundle(
         bar.update(done, { status: barStatus(done, total, downloaded) });
       },
     });
-    await lib.loadOrders();
+    const { failed } = await lib.loadOrders();
+    if (failed > 0)
+      logger(`Warning: ${failed} order(s) failed to load — inventory may be incomplete`);
     lastTotal = lib.bundles.reduce((sum, b) => sum + b.totalFiles(), 0);
     bar.setTotal(lastTotal);
     bar.update(0, { status: barStatus(0, lastTotal, 0) });
     const { downloaded, errors } = await lib.downloadLibrary();
-    return { ok: true, total: lastTotal, downloaded, errors };
+    return { ok: true, total: lastTotal, downloaded, errors: errors + failed };
   } catch (e) {
     return { ok: false, reason: fmtError(e) };
   }

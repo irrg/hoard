@@ -181,9 +181,10 @@ describe('Library.loadOrders', () => {
 
     const logger = vi.fn();
     const lib = new Library(makeOptions({ logger }));
-    await lib.loadOrders();
+    const { failed } = await lib.loadOrders();
 
     expect(lib.bundles).toHaveLength(1);
+    expect(failed).toBe(1);
     expect(logger).toHaveBeenCalledWith(expect.stringMatching(/Failed to fetch order key-a/i));
   });
 
@@ -200,9 +201,10 @@ describe('Library.loadOrders', () => {
 
     const logger = vi.fn();
     const lib = new Library(makeOptions({ logger }));
-    await lib.loadOrders();
+    const { failed } = await lib.loadOrders();
 
     expect(lib.bundles).toHaveLength(0);
+    expect(failed).toBe(1);
     expect(logger).toHaveBeenCalledWith(expect.stringMatching(/failed to parse order key-a/i));
   });
 

@@ -74,18 +74,21 @@ export class Library {
     const entries: BundleEntry[] = [];
 
     let pagesLoaded = 0;
-    await Promise.all(
-      bundles.map(async (ref) => {
-        const page = await this._loadBundlePage(ref.key);
-        const dir = join(this.outputDir, cleanPath(page.title));
-        const skip = !this.deep && hasFiles(dir);
-        const files = page.files.filter((f) => this.matchesFilter(f.filename));
-        if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
-        pagesLoaded++;
-        const filesFound = entries.reduce((s, e) => s + e.files.length, 0);
-        this.onLoadPage?.(pagesLoaded, bundles.length, filesFound);
-      }),
-    );
+    const pageTasks = bundles.map((ref) => async () => {
+      const page = await this._loadBundlePage(ref.key);
+      const dir = join(this.outputDir, cleanPath(page.title));
+      const skip = !this.deep && hasFiles(dir);
+      const files = page.files.filter((f) => this.matchesFilter(f.filename));
+      if (files.length > 0) entries.push({ title: page.title, dir, files, skip });
+      pagesLoaded++;
+      const filesFound = entries.reduce((s, e) => s + e.files.length, 0);
+      this.onLoadPage?.(pagesLoaded, bundles.length, filesFound);
+    });
+    if (this.runTask) {
+      await Promise.all(pageTasks.map((t) => this.runTask!(t)));
+    } else {
+      await runConcurrently(pageTasks, this.jobs);
+    }
 
     const total = entries.reduce((s, e) => s + e.files.length, 0);
     let filesDone = 0;
@@ -160,7 +163,7 @@ export class Library {
       if (existsSync(outPath)) {
         this.logger(`File already exists: ${filename}`);
         if (file.md5) {
-          if (existsSync(sidePath)) {
+          if (existsSync(sidePath) && !this.deep) {
             const stored = (await readFile(sidePath, 'utf8')).trim();
             if (stored === file.md5) {
               this.logger(`Skipping ${bundleName} - ${filename}`);
@@ -180,7 +183,11 @@ export class Library {
             const oldDir = join(dir, 'old');
             await mkdir(oldDir, { recursive: true });
             this.logger(`Moving ${filename} to old/`);
-            const timestamp = new Date().toISOString().split('T')[0];
+            const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+              Math.random() * 0x10000,
+            )
+              .toString(16)
+              .padStart(4, '0')}`;
             await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
           }
         } else {
@@ -196,9 +203,9 @@ export class Library {
 
       this.logger(`Downloading ${filename}`);
       const partialPath = outPath + '.partial';
+      const dataDir = join(this.outputDir, '.data');
       try {
         await streamToFile(file.url, partialPath, this.cookie);
-        await rename(partialPath, outPath);
       } catch (e) {
         await unlink(partialPath).catch(() => {});
         throw e;
@@ -206,14 +213,10 @@ export class Library {
       this.logger(`Downloaded ${filename}`);
 
       if (file.md5) {
-        const actual = await md5sum(outPath);
+        const actual = await md5sum(partialPath);
         if (actual !== file.md5) {
-          const oldDir = join(dir, 'old');
-          await mkdir(oldDir, { recursive: true });
-          const timestamp = new Date().toISOString().split('T')[0];
-          await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
+          await unlink(partialPath).catch(() => {});
           this.logger(`Checksum mismatch after download: ${filename}`);
-          const dataDir = join(this.outputDir, '.data');
           await mkdir(dataDir, { recursive: true });
           await appendFile(
             join(dataDir, 'errors.txt'),
@@ -221,6 +224,11 @@ export class Library {
           );
           return 'error';
         }
+      }
+
+      await rename(partialPath, outPath);
+
+      if (file.md5) {
         await mkdir(dirname(sidePath), { recursive: true });
         await writeFile(sidePath, file.md5);
       }

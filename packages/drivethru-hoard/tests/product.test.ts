@@ -12,7 +12,7 @@ vi.mock('fs/promises', () => ({
   mkdir: vi.fn(),
   rename: vi.fn(),
   appendFile: vi.fn(),
-  unlink: vi.fn(),
+  unlink: vi.fn().mockResolvedValue(undefined),
   stat: vi.fn(),
 }));
 
@@ -136,19 +136,19 @@ describe('Product.download', () => {
     vi.clearAllMocks();
   });
 
-  it('returns false immediately when the product has no files', async () => {
+  it('returns { newFiles: 0, errors: 0 } immediately when the product has no files', async () => {
     const p = makeProduct({ files: [] });
-    await expect(p.download('bearer-tok')).resolves.toBe(false);
+    await expect(p.download('bearer-tok')).resolves.toEqual({ newFiles: 0, errors: 0 });
   });
 
-  it('returns false when all doDownload calls return false (dry run)', async () => {
+  it('returns { newFiles: 0, errors: 0 } when all files are skipped (dry run)', async () => {
     const p = makeProduct({}, { dryRun: true });
-    await expect(p.download('bearer-tok')).resolves.toBe(false);
+    await expect(p.download('bearer-tok')).resolves.toEqual({ newFiles: 0, errors: 0 });
   });
 
-  it('returns true when at least one file is written', async () => {
+  it('returns { newFiles: 1, errors: 0 } when a file is written', async () => {
     const p = makeProduct();
-    await expect(p.download('bearer-tok')).resolves.toBe(true);
+    await expect(p.download('bearer-tok')).resolves.toEqual({ newFiles: 1, errors: 0 });
   });
 
   it('writes the manifest JSON when a file is downloaded', async () => {
@@ -188,14 +188,14 @@ describe('Product.download', () => {
     );
   });
 
-  it('returns false without any API calls when dir has files and deep is false', async () => {
+  it('returns { newFiles: 0, errors: 0 } without any API calls when dir has files and deep is false', async () => {
     existsSyncMock.mockReturnValueOnce(true); // dir exists
     readdirSyncMock.mockReturnValueOnce(['file.pdf'] as unknown as ReturnType<
       typeof fsSync.readdirSync
     >);
     const p = makeProduct();
     const result = await p.download('tok');
-    expect(result).toBe(false);
+    expect(result).toEqual({ newFiles: 0, errors: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -203,7 +203,7 @@ describe('Product.download', () => {
     existsSyncMock.mockReturnValueOnce(false); // outFile does not exist → download
     const p = makeProduct({}, { deep: true } as any);
     const result = await p.download('tok');
-    expect(result).toBe(true);
+    expect(result).toEqual({ newFiles: 1, errors: 0 });
   });
 });
 
@@ -235,18 +235,18 @@ describe('Product.doDownload', () => {
     vi.clearAllMocks();
   });
 
-  it('returns false in dry run mode without downloading', async () => {
+  it('returns skipped in dry run mode without downloading', async () => {
     const p = makeProduct({}, { dryRun: true });
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('skipped');
     expect(streamToFileMock).not.toHaveBeenCalled();
   });
 
-  it('downloads and returns true when file does not exist', async () => {
+  it('downloads and returns downloaded when file does not exist', async () => {
     existsSyncMock.mockReturnValue(false);
     const p = makeProduct();
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(true);
+    expect(result).toBe('downloaded');
     expect(streamToFileMock).toHaveBeenCalledWith(
       'https://cdn.example.com/file.pdf',
       expect.any(String),
@@ -261,7 +261,7 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('skipped');
     expect(streamToFileMock).not.toHaveBeenCalled();
   });
 
@@ -278,8 +278,8 @@ describe('Product.doDownload', () => {
     md5sumMock.mockResolvedValue('new-checksum'); // post-download matches api checksum
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
-    expect(result).toBe(true);
-    expect(renameMock).toHaveBeenCalled(); // old file moved
+    expect(result).toBe('downloaded');
+    expect(renameMock).toHaveBeenCalled(); // old file quarantined, then partial→final rename
     expect(streamToFileMock).toHaveBeenCalled();
   });
 
@@ -289,7 +289,7 @@ describe('Product.doDownload', () => {
     statMock.mockResolvedValue({ mtimeMs: Date.now() + 100000 } as unknown as import('fs').Stats);
     const p = makeProduct({ fileLastModified: '2020-01-01T00:00:00Z' });
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('skipped');
     expect(streamToFileMock).not.toHaveBeenCalled();
   });
 
@@ -299,7 +299,7 @@ describe('Product.doDownload', () => {
     statMock.mockResolvedValue({ mtimeMs: 0 } as unknown as import('fs').Stats);
     const p = makeProduct({ fileLastModified: '2099-01-01T00:00:00Z' });
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(true);
+    expect(result).toBe('downloaded');
     expect(renameMock).toHaveBeenCalled();
     expect(streamToFileMock).toHaveBeenCalled();
   });
@@ -315,7 +315,7 @@ describe('Product.doDownload', () => {
     expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
-  it('moves file to old/, logs error, and returns false when post-download checksum mismatches', async () => {
+  it('unlinks partial and returns error when post-download checksum mismatches', async () => {
     existsSyncMock.mockReturnValue(false);
     md5sumMock.mockResolvedValue('wrong-hash');
     const item = makeItem({
@@ -323,11 +323,8 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
-    expect(renameMock).toHaveBeenCalledWith(
-      expect.stringContaining('my-rpg.pdf'),
-      expect.stringContaining('old'),
-    );
+    expect(result).toBe('error');
+    expect(renameMock).not.toHaveBeenCalled();
     expect(writeFileMock).not.toHaveBeenCalledWith(
       expect.stringContaining('.md5'),
       expect.any(String),
@@ -349,24 +346,24 @@ describe('Product.doDownload', () => {
     );
   });
 
-  it('returns false and logs error when _prepareDownloadUrl fails', async () => {
+  it('returns error and logs when _prepareDownloadUrl fails', async () => {
     fetchMock.mockResolvedValue({ status: 500, ok: false, headers: { get: () => null } });
     existsSyncMock.mockReturnValue(false);
     const logger = vi.fn();
     const p = makeProduct({}, { logger });
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('error');
     expect(logger).toHaveBeenCalledWith(expect.stringContaining('Could not get download link'));
     expect(appendFileMock).toHaveBeenCalled();
   });
 
-  it('returns false and logs error when streamToFile throws', async () => {
+  it('returns error and logs when streamToFile throws', async () => {
     existsSyncMock.mockReturnValue(false);
     streamToFileMock.mockRejectedValue(new Error('network error'));
     const logger = vi.fn();
     const p = makeProduct({}, { logger });
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('error');
     expect(logger).toHaveBeenCalledWith(expect.stringContaining('Download failed'));
     expect(appendFileMock).toHaveBeenCalled();
   });
@@ -394,14 +391,14 @@ describe('Product.doDownload', () => {
     const promise = p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
     await vi.runAllTimersAsync();
     const result = await promise;
-    expect(result).toBe(true);
+    expect(result).toBe('downloaded');
     // prepare + check = 2 fetch calls (plus later streamToFile which uses its own fetch)
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('prepare'), expect.any(Object));
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('check'), expect.any(Object));
     vi.useRealTimers();
   });
 
-  it('throws when prepare response has no URL', async () => {
+  it('returns error when prepare response has no URL', async () => {
     existsSyncMock.mockReturnValue(false);
     fetchMock.mockResolvedValue({
       status: 200,
@@ -411,7 +408,7 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct();
     const result = await p.doDownload(makeItem(), 'tok', 'my-rpg.pdf');
-    expect(result).toBe(false);
+    expect(result).toBe('error');
     expect(appendFileMock).toHaveBeenCalled();
   });
 
@@ -450,7 +447,7 @@ describe('Product.doDownload', () => {
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
     // newest checksum matches stored → skip
-    expect(result).toBe(false);
+    expect(result).toBe('skipped');
   });
 
   it('returns the orderProductId in the prepare URL', async () => {
@@ -460,6 +457,38 @@ describe('Product.doDownload', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/order_products/999/prepare'),
       expect.any(Object),
+    );
+  });
+
+  it('deep mode bypasses sidecar and re-hashes when sidecar matches but local hash differs', async () => {
+    // outFile exists, sidecar exists and would match — but deep mode skips sidecar trust
+    existsSyncMock.mockReturnValueOnce(true).mockReturnValueOnce(true);
+    readFileMock.mockResolvedValue('api-checksum' as unknown as Buffer);
+    // local hash differs → quarantine + re-download
+    md5sumMock.mockResolvedValueOnce('different-local').mockResolvedValue('api-checksum');
+    const item = makeItem({
+      checksums: [{ checksum: 'api-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
+    });
+    const p = makeProduct({ files: [item] }, { deep: true } as any);
+    const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
+    expect(readFileMock).not.toHaveBeenCalled(); // sidecar bypassed
+    expect(renameMock).toHaveBeenCalled(); // quarantined old + renamed partial
+    expect(result).toBe('downloaded');
+  });
+
+  it('quarantine path includes milliseconds and random suffix', async () => {
+    existsSyncMock.mockReturnValueOnce(true).mockReturnValueOnce(true);
+    readFileMock.mockResolvedValue('old-hash' as unknown as Buffer);
+    md5sumMock.mockResolvedValue('api-checksum');
+    const item = makeItem({
+      checksums: [{ checksum: 'api-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
+    });
+    const p = makeProduct({ files: [item] });
+    await p.doDownload(item, 'tok', 'my-rpg.pdf');
+    const quarantineCall = renameMock.mock.calls.find(([, dest]) => String(dest).includes('old'));
+    expect(quarantineCall).toBeDefined();
+    expect(quarantineCall![1]).toMatch(
+      /old\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{4}-my-rpg\.pdf$/,
     );
   });
 });

@@ -226,13 +226,14 @@ describe('Bundle.download', () => {
     expect(result.errors).toBe(0);
   });
 
-  it('returns error and moves file to old/ when post-download md5 mismatches', async () => {
+  it('returns error and unlinks partial when post-download md5 mismatches', async () => {
     md5sumMock.mockResolvedValue('differenthash');
     const b = new Bundle('k', makeData(), makeOptions());
     const result = await b.download();
     expect(result.errors).toBe(1);
     expect(result.newFiles).toBe(0);
-    expect(renameMock).toHaveBeenCalled();
+    expect(renameMock).not.toHaveBeenCalled();
+    expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining('.partial'));
     expect(appendFileMock).toHaveBeenCalledWith(
       expect.stringContaining('errors.txt'),
       expect.stringContaining('Checksum mismatch'),

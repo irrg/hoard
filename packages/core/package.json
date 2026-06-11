@@ -2,6 +2,7 @@
   "name": "@irrg/hoard-core",
   "version": "0.1.0",
   "license": "BSD-3-Clause",
+  "homepage": "https://github.com/irrg/hoard",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
@@ -12,6 +13,11 @@
       "types": "./dist/src/index.d.ts"
     }
   },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -23,5 +29,10 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irrg/hoard.git",
+    "directory": "packages/core"
   }
 }

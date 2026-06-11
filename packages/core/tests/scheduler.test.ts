@@ -68,4 +68,26 @@ describe('Scheduler', () => {
     await scheduler.drain();
     expect(completed).toBe(3);
   });
+
+  it('constructor throws on zero or negative jobs', () => {
+    expect(() => new Scheduler(0)).toThrow(RangeError);
+    expect(() => new Scheduler(-1)).toThrow(RangeError);
+  });
+
+  it('constructor throws on non-integer jobs', () => {
+    expect(() => new Scheduler(1.5)).toThrow(RangeError);
+    expect(() => new Scheduler(NaN)).toThrow(RangeError);
+  });
+
+  it('drain() waits for tasks queued behind the concurrency limit', async () => {
+    const scheduler = new Scheduler(2);
+    let completed = 0;
+    const tasks = Array.from({ length: 5 }, () => async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      completed++;
+    });
+    tasks.forEach((t) => scheduler.run(t));
+    await scheduler.drain();
+    expect(completed).toBe(5);
+  });
 });

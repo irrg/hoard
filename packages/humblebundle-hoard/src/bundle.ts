@@ -170,7 +170,7 @@ export class Bundle {
       const apiMd5 = item.md5?.toLowerCase() || null;
       if (apiMd5) {
         const md5File = sidecarPath(this.outputDir, outFile);
-        if (existsSync(md5File)) {
+        if (existsSync(md5File) && !this.options.deep) {
           const stored = (await readFile(md5File, 'utf8')).trim();
           if (stored === apiMd5) {
             this.options.logger(`Skipping ${productName} - ${filename}`);
@@ -188,7 +188,11 @@ export class Bundle {
         this.options.logger(`Checksum mismatch: ${filename}, re-downloading`);
         const oldDir = path.join(dir, 'old');
         await mkdir(oldDir, { recursive: true });
-        const stamp = new Date().toISOString().split('T')[0];
+        const stamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+          Math.random() * 0x10000,
+        )
+          .toString(16)
+          .padStart(4, '0')}`;
         await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
       } else {
         this.options.logger(`Skipping ${productName} - ${filename}`);
@@ -198,21 +202,15 @@ export class Bundle {
 
     await mkdir(dir, { recursive: true });
 
+    this.options.logger(`Downloading ${this.name} / ${productName} - ${filename}`);
+    const partialPath = outFile + '.partial';
+    const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
     try {
-      this.options.logger(`Downloading ${this.name} / ${productName} - ${filename}`);
-      const partialPath = outFile + '.partial';
-      try {
-        await streamToFile(item.url.web, partialPath, `_simpleauth_sess=${this.options.cookie}`);
-        await rename(partialPath, outFile);
-      } catch (e) {
-        await unlink(partialPath).catch(() => {});
-        throw e;
-      }
-      this.options.logger(`Downloaded ${filename}`);
+      await streamToFile(item.url.web, partialPath, `_simpleauth_sess=${this.options.cookie}`);
     } catch (e) {
+      await unlink(partialPath).catch(() => {});
       const msg = e instanceof Error ? e.message : String(e);
       this.options.logger(`Download failed: ${productName} - ${filename}: ${msg}`);
-      const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
       await mkdir(path.dirname(errorsFile), { recursive: true });
       await appendFile(
         errorsFile,
@@ -220,17 +218,14 @@ export class Bundle {
       );
       return 'error';
     }
+    this.options.logger(`Downloaded ${filename}`);
 
     const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
-      const computed = await md5sum(outFile);
+      const computed = await md5sum(partialPath);
       if (computed !== apiMd5) {
-        const oldDir = path.join(path.dirname(outFile), 'old');
-        await mkdir(oldDir, { recursive: true });
-        const stamp = new Date().toISOString().split('T')[0];
-        await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
+        await unlink(partialPath).catch(() => {});
         this.options.logger(`Checksum mismatch after download: ${filename}`);
-        const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
         await mkdir(path.dirname(errorsFile), { recursive: true });
         await appendFile(
           errorsFile,
@@ -238,6 +233,11 @@ export class Bundle {
         );
         return 'error';
       }
+    }
+
+    await rename(partialPath, outFile);
+
+    if (apiMd5) {
       const md5Out = sidecarPath(this.outputDir, outFile);
       await mkdir(path.dirname(md5Out), { recursive: true });
       await writeFile(md5Out, apiMd5);

@@ -13,6 +13,11 @@ export function isStorefront(s: string): s is Storefront {
   return (STOREFRONTS as readonly string[]).includes(s);
 }
 
+export function parseJobsArg(raw: string | undefined, fallback: number): number {
+  if (raw == null) return fallback;
+  return /^\d+$/.test(raw) ? Number(raw) : NaN;
+}
+
 export interface HoardConfig {
   HOARD_ITCHIO_USERNAME: string;
   HOARD_ITCHIO_PASSWORD: string;

@@ -5,7 +5,7 @@ import { dirname, join } from 'path';
 import type { RunTask } from '@irrg/hoard-core';
 
 import { Game, GameData, OwnedKeyData } from './game.js';
-import { NoDownloadError, fetchWithRetry, runConcurrently } from './utils.js';
+import { fetchWithRetry, runConcurrently } from './utils.js';
 
 export interface UserProfile {
   id: number;
@@ -111,12 +111,14 @@ export class Library {
     const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
       headers: { Authorization: this.token },
     });
+    if (!r.ok) {
+      throw new Error(`Failed to load owned keys page ${page}: HTTP ${r.status}`);
+    }
     try {
       const j = (await r.json()) as { owned_keys?: OwnedKeyData[] };
       return Array.isArray(j.owned_keys) ? j.owned_keys : [];
     } catch {
-      this.logger(`Failed to load page ${page} (HTTP ${r.status}), stopping pagination`);
-      return [];
+      throw new Error(`Failed to parse page ${page} response`);
     }
   }
 
@@ -175,11 +177,15 @@ export class Library {
     const r = await fetchWithRetry('https://api.itch.io/profile', {
       headers: { Authorization: this.token },
     });
+    if (!r.ok) {
+      this.logger(`Failed to load profile (HTTP ${r.status})`);
+      return null;
+    }
     try {
       const j = (await r.json()) as { user?: UserProfile };
       return j.user ?? null;
     } catch {
-      this.logger(`Failed to load profile (HTTP ${r.status})`);
+      this.logger(`Failed to parse profile response`);
       return null;
     }
   }
@@ -188,11 +194,15 @@ export class Library {
     const r = await fetchWithRetry('https://api.itch.io/profile/collections', {
       headers: { Authorization: this.token },
     });
+    if (!r.ok) {
+      this.logger(`Failed to load collections (HTTP ${r.status})`);
+      return [];
+    }
     try {
       const j = (await r.json()) as { collections?: Collection[] };
       return Array.isArray(j.collections) ? j.collections : [];
     } catch {
-      this.logger(`Failed to load collections (HTTP ${r.status})`);
+      this.logger(`Failed to parse collections response`);
       return [];
     }
   }
@@ -204,11 +214,15 @@ export class Library {
         `https://api.itch.io/collections/${id}/collection-games?page=${page}`,
         { headers: { Authorization: this.token } },
       );
+      if (!r.ok) {
+        this.logger(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
+        break;
+      }
       let j: { collection_games?: Array<{ game: GameData }> };
       try {
         j = (await r.json()) as { collection_games?: Array<{ game: GameData }> };
       } catch {
-        this.logger(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to parse collection ${id} page ${page}, stopping`);
         break;
       }
       if (!Array.isArray(j.collection_games) || j.collection_games.length === 0) break;
@@ -232,11 +246,15 @@ export class Library {
     const r = await fetchWithRetry('https://api.itch.io/profile/owned-bundles', {
       headers: { Authorization: this.token },
     });
+    if (!r.ok) {
+      this.logger(`Failed to load bundles (HTTP ${r.status})`);
+      return [];
+    }
     try {
       const j = (await r.json()) as { bundle_keys?: BundleKey[] };
       return Array.isArray(j.bundle_keys) ? j.bundle_keys : [];
     } catch {
-      this.logger(`Failed to load bundles (HTTP ${r.status})`);
+      this.logger(`Failed to parse bundles response`);
       return [];
     }
   }
@@ -248,11 +266,15 @@ export class Library {
         `https://api.itch.io/bundles/${id}/bundle-games?page=${page}`,
         { headers: { Authorization: this.token } },
       );
+      if (!r.ok) {
+        this.logger(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
+        break;
+      }
       let j: { bundle_games?: Array<{ game: GameData }> };
       try {
         j = (await r.json()) as { bundle_games?: Array<{ game: GameData }> };
       } catch {
-        this.logger(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
+        this.logger(`Failed to parse bundle ${id} page ${page}, stopping`);
         break;
       }
       if (!Array.isArray(j.bundle_games) || j.bundle_games.length === 0) break;
@@ -284,18 +306,15 @@ export class Library {
 
     const tasks = games.map((g) => async () => {
       try {
-        const hadNewFiles = await g.download(this.token, platform);
-        if (hadNewFiles) {
+        const result = await g.download(this.token, platform);
+        if (result.newFiles > 0) {
           downloaded++;
           this.logger(`Downloaded ${g.name} (${downloaded} of ${total})`);
         }
+        errors += result.errors;
       } catch (e) {
-        if (e instanceof NoDownloadError) {
-          this.logger(String(e));
-          errors++;
-        } else {
-          throw e;
-        }
+        this.logger(`Error downloading ${g.name}: ${e instanceof Error ? e.message : String(e)}`);
+        errors++;
       }
       this.onProgress?.(++done, total, downloaded);
     });

@@ -5,7 +5,13 @@ import { parseArgs } from 'node:util';
 
 import { cmdAuth } from '../src/auth.js';
 import { cmdCheck } from '../src/check.js';
-import { type Storefront, STOREFRONTS, isStorefront, readConfig } from '../src/config.js';
+import {
+  type Storefront,
+  STOREFRONTS,
+  isStorefront,
+  parseJobsArg,
+  readConfig,
+} from '../src/config.js';
 import { cmdStatus } from '../src/status.js';
 import { cmdSync } from '../src/sync.js';
 
@@ -93,8 +99,8 @@ switch (command) {
   case 'sync': {
     const config = await readConfig();
 
-    const jobs = args.jobs != null ? parseInt(args.jobs, 10) : config.HOARD_JOBS;
-    if (isNaN(jobs) || jobs < 1) {
+    const jobs = parseJobsArg(args.jobs, config.HOARD_JOBS);
+    if (!Number.isInteger(jobs) || jobs < 1) {
       console.error(`Invalid --jobs value: "${args.jobs}". Must be a positive integer.`);
       process.exit(1);
     }

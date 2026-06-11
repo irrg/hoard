@@ -104,7 +104,8 @@ export class Library {
     return Array.isArray(data) ? data.map((d) => d.gamekey) : [];
   }
 
-  private async fetchBundles(keys: string[]): Promise<void> {
+  private async fetchBundles(keys: string[]): Promise<number> {
+    let failed = 0;
     const tasks = keys.map((key) => async () => {
       const cached = this.bundleOptions.deep ? null : await this.loadCachedOrder(key);
       if (cached) {
@@ -119,6 +120,7 @@ export class Library {
       );
       if (!r.ok) {
         this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
+        failed++;
         return;
       }
       try {
@@ -129,15 +131,22 @@ export class Library {
         this.bundles.push(new Bundle(key, data, this.bundleOptions));
       } catch {
         this.logger(`Failed to parse order ${key}`);
+        failed++;
       }
     });
-    await runConcurrently(tasks, 4);
+    if (this.runTask) {
+      await Promise.all(tasks.map((t) => this.runTask!(t)));
+    } else {
+      await runConcurrently(tasks, this.jobs);
+    }
+    return failed;
   }
 
-  async loadOrders(keys?: string[]): Promise<void> {
+  async loadOrders(keys?: string[]): Promise<{ failed: number }> {
     const allKeys = keys ?? (await this.fetchKeys());
     this.logger(`Found ${allKeys.length} orders`);
-    await this.fetchBundles(allKeys);
+    const failed = await this.fetchBundles(allKeys);
+    return { failed };
   }
 
   async loadOrder(key: string): Promise<void> {

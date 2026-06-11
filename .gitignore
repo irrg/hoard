@@ -1,6 +1,7 @@
 node_modules/
 dist/
 downloads/
+*.tgz
 .DS_Store
 .env
 .changeset/README.md

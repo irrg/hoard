@@ -296,13 +296,24 @@ describe('Library', () => {
   });
 
   describe('downloadLibrary', () => {
-    function fakeProduct(name: string, wrote: boolean | 'throw' = true) {
+    function fakeProduct(
+      name: string,
+      result: boolean | 'throw' | { newFiles: number; errors: number } = true,
+    ) {
+      const resolvedResult =
+        result === true
+          ? { newFiles: 1, errors: 0 }
+          : result === false
+            ? { newFiles: 0, errors: 0 }
+            : result === 'throw'
+              ? null
+              : result;
       return {
         name,
         download:
-          wrote === 'throw'
+          result === 'throw'
             ? vi.fn().mockRejectedValue(new Error(`Download failed for ${name}`))
-            : vi.fn().mockResolvedValue(wrote),
+            : vi.fn().mockResolvedValue(resolvedResult),
       } as unknown as import('../src/product.js').Product;
     }
 
@@ -374,8 +385,26 @@ describe('Library', () => {
       await lib.downloadLibrary();
       expect(onProgress).toHaveBeenCalledTimes(2);
       const lastCall = onProgress.mock.calls.at(-1) as [number, number, number];
+      expect(lastCall[0]).toBe(2); // done
       expect(lastCall[1]).toBe(2); // total
       expect(lastCall[2]).toBe(1); // downloaded
+    });
+
+    it('onProgress done arg never exceeds total when products have per-file errors', async () => {
+      const doneArgs: number[] = [];
+      const lib = makeLibrary({ onProgress: (done) => doneArgs.push(done) });
+      lib.products = [fakeProduct('A', { newFiles: 0, errors: 3 }), fakeProduct('B', 'throw')];
+      await lib.downloadLibrary();
+      expect(doneArgs).toHaveLength(2);
+      expect(doneArgs.every((d) => d <= 2)).toBe(true);
+    });
+
+    it('propagates per-file errors from product download into result', async () => {
+      const lib = makeLibrary();
+      lib.products = [fakeProduct('A', { newFiles: 0, errors: 2 }), fakeProduct('B', true)];
+      const result = await lib.downloadLibrary();
+      expect(result.errors).toBe(2);
+      expect(result.downloaded).toBe(1);
     });
   });
 });

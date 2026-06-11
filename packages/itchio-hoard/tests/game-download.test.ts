@@ -8,7 +8,7 @@ vi.mock('fs/promises', () => ({
   mkdir: vi.fn(),
   rename: vi.fn(),
   appendFile: vi.fn(),
-  unlink: vi.fn(),
+  unlink: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../src/utils.js', async (importOriginal) => {
@@ -17,7 +17,7 @@ vi.mock('../src/utils.js', async (importOriginal) => {
 });
 
 import { existsSync, readdirSync } from 'fs';
-import { readFile, writeFile, mkdir, rename, appendFile } from 'fs/promises';
+import { readFile, writeFile, mkdir, rename, unlink, appendFile } from 'fs/promises';
 
 import { Game } from '../src/game.js';
 import type { Upload } from '../src/game.js';
@@ -61,6 +61,7 @@ describe('Game.loadDownloads', () => {
     const uploads = [makeUpload(), makeUpload({ id: 43, filename: 'manual.pdf' })];
     fetchMock.mockResolvedValueOnce({
       status: 200,
+      ok: true,
       json: async () => ({ uploads }),
     });
     const g = makeGame();
@@ -69,27 +70,31 @@ describe('Game.loadDownloads', () => {
   });
 
   it('includes download_key_id when game has an owned-key id', async () => {
-    fetchMock.mockResolvedValueOnce({ status: 200, json: async () => ({ uploads: [] }) });
+    fetchMock.mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ uploads: [] }) });
     await makeGame().loadDownloads('tok');
     expect(fetchMock.mock.calls[0][0]).toContain('download_key_id=1111');
   });
 
   it('omits download_key_id for games without an owned-key id', async () => {
-    fetchMock.mockResolvedValueOnce({ status: 200, json: async () => ({ uploads: [] }) });
+    fetchMock.mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ uploads: [] }) });
     await new Game({ game: gameData.game }).loadDownloads('tok');
     expect(fetchMock.mock.calls[0][0]).not.toContain('download_key_id');
   });
 
-  it('returns empty downloads on JSON parse failure', async () => {
+  it('throws on JSON parse failure', async () => {
     fetchMock.mockResolvedValueOnce({
-      status: 500,
+      status: 200,
+      ok: true,
       json: async () => {
         throw new SyntaxError('bad');
       },
     });
-    const g = makeGame();
-    await g.loadDownloads('tok');
-    expect(g.downloads).toHaveLength(0);
+    await expect(makeGame().loadDownloads('tok')).rejects.toThrow('Failed to parse downloads');
+  });
+
+  it('throws on non-ok HTTP response', async () => {
+    fetchMock.mockResolvedValueOnce({ status: 401, ok: false, json: async () => ({}) });
+    await expect(makeGame().loadDownloads('tok')).rejects.toThrow('HTTP 401');
   });
 });
 
@@ -110,7 +115,7 @@ describe('Game.download (shallow mode)', () => {
       typeof readdirSync
     >);
     const result = await makeGame().download('tok');
-    expect(result).toBe(false);
+    expect(result).toEqual({ newFiles: 0, errors: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -119,25 +124,43 @@ describe('Game.download (shallow mode)', () => {
     vi.mocked(readdirSync).mockReturnValue(['game.zip'] as unknown as ReturnType<
       typeof readdirSync
     >);
-    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    fetchMock.mockResolvedValue({ status: 200, ok: true, json: async () => ({ uploads: [] }) });
     const result = await makeGame(undefined, true).download('tok');
-    expect(result).toBe(false); // no uploads, so still false — but API was called
+    expect(result).toEqual({ newFiles: 0, errors: 0 }); // no uploads — but API was called
     expect(fetchMock).toHaveBeenCalled();
   });
 
   it('proceeds when dir is empty even in shallow mode', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readdirSync).mockReturnValue([] as unknown as ReturnType<typeof readdirSync>);
-    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    fetchMock.mockResolvedValue({ status: 200, ok: true, json: async () => ({ uploads: [] }) });
     await makeGame().download('tok');
     expect(fetchMock).toHaveBeenCalled();
   });
 
   it('proceeds when dir does not exist in shallow mode', async () => {
     vi.mocked(existsSync).mockReturnValue(false);
-    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ uploads: [] }) });
+    fetchMock.mockResolvedValue({ status: 200, ok: true, json: async () => ({ uploads: [] }) });
     await makeGame().download('tok');
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it('returns errors: 1 when loadDownloads throws (JSON parse failure)', async () => {
+    fetchMock.mockResolvedValueOnce({
+      status: 200,
+      ok: true,
+      json: async () => {
+        throw new SyntaxError('bad json');
+      },
+    });
+    const result = await makeGame().download('tok');
+    expect(result).toEqual({ newFiles: 0, errors: 1 });
+  });
+
+  it('returns errors: 1 when loadDownloads throws (HTTP failure)', async () => {
+    fetchMock.mockResolvedValueOnce({ status: 403, ok: false, json: async () => ({}) });
+    const result = await makeGame().download('tok');
+    expect(result).toEqual({ newFiles: 0, errors: 1 });
   });
 });
 
@@ -162,11 +185,14 @@ describe('Game.download — case-collision disambiguation', () => {
       { id: 22, filename: 'And The Gunslinger Followed.pdf', md5_hash: 'bbb' },
     ];
     fetchMock
-      .mockResolvedValueOnce({ status: 200, json: async () => ({ uploads }) })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ uploads }) })
       .mockResolvedValueOnce({ status: 200, json: async () => ({ uuid: 'u1' }) })
       .mockResolvedValueOnce({ status: 200, json: async () => ({ uuid: 'u2' }) });
     await makeGame().download('tok');
-    const downloadedFiles = vi.mocked(download).mock.calls.map((c) => c[3]);
+    // download() is called with the .partial filename; strip suffix to check disambiguation
+    const downloadedFiles = vi
+      .mocked(download)
+      .mock.calls.map((c) => String(c[3]).replace('.partial', ''));
     expect(downloadedFiles).toContain('And the Gunslinger Followed_11.pdf');
     expect(downloadedFiles).toContain('And The Gunslinger Followed_22.pdf');
   });
@@ -177,11 +203,14 @@ describe('Game.download — case-collision disambiguation', () => {
       { id: 22, filename: 'manual.pdf', md5_hash: 'bbb' },
     ];
     fetchMock
-      .mockResolvedValueOnce({ status: 200, json: async () => ({ uploads }) })
+      .mockResolvedValueOnce({ status: 200, ok: true, json: async () => ({ uploads }) })
       .mockResolvedValueOnce({ status: 200, json: async () => ({ uuid: 'u1' }) })
       .mockResolvedValueOnce({ status: 200, json: async () => ({ uuid: 'u2' }) });
     await makeGame().download('tok');
-    const downloadedFiles = vi.mocked(download).mock.calls.map((c) => c[3]);
+    // download() is called with the .partial filename; strip suffix to check disambiguation
+    const downloadedFiles = vi
+      .mocked(download)
+      .mock.calls.map((c) => String(c[3]).replace('.partial', ''));
     expect(downloadedFiles).toContain('readme.txt');
     expect(downloadedFiles).toContain('manual.pdf');
   });
@@ -199,6 +228,7 @@ describe('Game.doDownload', () => {
     vi.mocked(mkdir).mockResolvedValue(undefined);
     vi.mocked(writeFile).mockResolvedValue(undefined);
     vi.mocked(rename).mockResolvedValue(undefined);
+    vi.mocked(unlink).mockResolvedValue(undefined);
     vi.mocked(appendFile).mockResolvedValue(undefined);
     vi.mocked(download).mockResolvedValue(undefined);
     vi.mocked(md5sum).mockResolvedValue('abc123');
@@ -215,14 +245,15 @@ describe('Game.doDownload', () => {
       expect.stringContaining('uuid=test-uuid'),
       expect.any(String),
       'Test Game',
-      'game.zip',
+      'game.zip.partial',
       expect.any(Function),
     );
   });
 
   it('includes download_key_id in download URL for owned-key games', async () => {
     mockSession(fetchMock);
-    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(result).toBe('downloaded');
     expect(download).toHaveBeenCalledWith(
       expect.stringContaining('download_key_id=1111'),
       expect.any(String),
@@ -235,11 +266,20 @@ describe('Game.doDownload', () => {
   it('writes .md5 sidecar after successful verified download', async () => {
     mockSession(fetchMock);
     vi.mocked(md5sum).mockResolvedValue('abc123');
-    await makeGame().doDownload(makeUpload({ md5_hash: 'abc123' }), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(
+      makeUpload({ md5_hash: 'abc123' }),
+      'tok',
+      'game.zip',
+    );
+    expect(result).toBe('downloaded');
     expect(writeFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
+    expect(rename).toHaveBeenCalledWith(
+      expect.stringContaining('game.zip.partial'),
+      expect.stringContaining('game.zip'),
+    );
   });
 
-  it('moves file to old/, logs mismatch, and returns false when post-download MD5 fails', async () => {
+  it('unlinks partial, logs mismatch, and returns error when post-download MD5 fails', async () => {
     mockSession(fetchMock);
     vi.mocked(md5sum).mockResolvedValue('wrong-hash');
     const logSpy = vi.fn();
@@ -248,20 +288,22 @@ describe('Game.doDownload', () => {
       'tok',
       'game.zip',
     );
-    expect(result).toBe(false);
+    expect(result).toBe('error');
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('Checksum mismatch after download'),
     );
-    expect(rename).toHaveBeenCalledWith(
-      expect.stringContaining('game.zip'),
-      expect.stringContaining('old'),
-    );
+    expect(rename).not.toHaveBeenCalled();
     expect(writeFile).not.toHaveBeenCalledWith(expect.stringContaining('.md5'), expect.any(String));
   });
 
   it('skips when file exists and has no md5_hash', async () => {
     vi.mocked(existsSync).mockReturnValue(true);
-    await makeGame().doDownload(makeUpload({ md5_hash: undefined }), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(
+      makeUpload({ md5_hash: undefined }),
+      'tok',
+      'game.zip',
+    );
+    expect(result).toBe('skipped');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(download).not.toHaveBeenCalled();
   });
@@ -269,14 +311,16 @@ describe('Game.doDownload', () => {
   it('skips when .md5 sidecar matches', async () => {
     vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(true);
     vi.mocked(readFile).mockResolvedValue('abc123' as unknown as Buffer);
-    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(result).toBe('skipped');
     expect(download).not.toHaveBeenCalled();
   });
 
   it('skips and writes sidecar when computed MD5 matches and sidecar is absent', async () => {
     vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(false);
     vi.mocked(md5sum).mockResolvedValue('abc123');
-    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(result).toBe('skipped');
     expect(download).not.toHaveBeenCalled();
     expect(writeFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'abc123');
   });
@@ -295,21 +339,23 @@ describe('Game.doDownload', () => {
 
   it('moves file to old/ and re-downloads when computed MD5 mismatches', async () => {
     vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(false);
-    vi.mocked(md5sum).mockResolvedValue('different-hash');
+    vi.mocked(md5sum).mockResolvedValueOnce('different-hash').mockResolvedValue('abc123');
     mockSession(fetchMock);
-    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(result).toBe('downloaded');
     expect(rename).toHaveBeenCalled();
     expect(download).toHaveBeenCalled();
   });
 
-  it('returns early without downloading when session request fails', async () => {
+  it('returns error without downloading when session request fails', async () => {
     fetchMock.mockResolvedValueOnce({
       status: 500,
       json: async () => {
         throw new SyntaxError('bad');
       },
     });
-    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const result = await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(result).toBe('error');
     expect(download).not.toHaveBeenCalled();
   });
 
@@ -332,6 +378,33 @@ describe('Game.doDownload', () => {
     expect(appendFile).toHaveBeenCalledWith(
       'downloads/.data/errors.txt',
       expect.stringContaining('game.zip'),
+    );
+  });
+
+  it('deep mode bypasses sidecar and re-hashes when sidecar matches but local hash differs', async () => {
+    // outFile exists, sidecar exists and would match — deep mode must ignore sidecar
+    vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(true);
+    vi.mocked(readFile).mockResolvedValue('abc123' as unknown as Buffer); // sidecar says abc123
+    vi.mocked(md5sum).mockResolvedValueOnce('different-hash').mockResolvedValue('abc123');
+    mockSession(fetchMock);
+    const result = await makeGame(undefined, true).doDownload(makeUpload(), 'tok', 'game.zip');
+    expect(readFile).not.toHaveBeenCalled(); // sidecar bypassed
+    expect(result).toBe('downloaded');
+    expect(rename).toHaveBeenCalledTimes(2); // quarantine + partial→final
+  });
+
+  it('quarantine path includes milliseconds and random suffix', async () => {
+    vi.mocked(existsSync).mockReturnValueOnce(true).mockReturnValueOnce(true);
+    vi.mocked(readFile).mockResolvedValue('old-hash' as unknown as Buffer);
+    vi.mocked(md5sum).mockResolvedValue('abc123');
+    mockSession(fetchMock);
+    await makeGame().doDownload(makeUpload(), 'tok', 'game.zip');
+    const quarantineCall = vi
+      .mocked(rename)
+      .mock.calls.find(([, dest]) => String(dest).includes('old'));
+    expect(quarantineCall).toBeDefined();
+    expect(quarantineCall![1]).toMatch(
+      /old\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{4}-game\.zip$/,
     );
   });
 });

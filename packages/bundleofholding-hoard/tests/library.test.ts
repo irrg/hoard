@@ -377,7 +377,9 @@ describe('Library.downloadBundles — file skip logic', () => {
     expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('old'), { recursive: true });
     expect(mockRename).toHaveBeenCalledWith(
       expect.stringContaining('book.pdf'),
-      expect.stringMatching(/old\/\d{4}-\d{2}-\d{2}-book\.pdf$/),
+      expect.stringMatching(
+        /old\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{4}-book\.pdf$/,
+      ),
     );
     expect(mockStreamToFile).toHaveBeenCalledOnce();
     expect(result.downloaded).toBe(1);
@@ -407,7 +409,9 @@ describe('Library.downloadBundles — file skip logic', () => {
     // Should move to old/ and re-download
     expect(mockRename).toHaveBeenCalledWith(
       expect.stringContaining('book.pdf'),
-      expect.stringMatching(/old\/\d{4}-\d{2}-\d{2}-book\.pdf$/),
+      expect.stringMatching(
+        /old\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{4}-book\.pdf$/,
+      ),
     );
     expect(mockStreamToFile).toHaveBeenCalledOnce();
     expect(result.downloaded).toBe(1);

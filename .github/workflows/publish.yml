@@ -36,6 +36,47 @@ jobs:
 
       - run: pnpm -r build
 
+      - run: pnpm -r fmt:check
+
+      - run: pnpm -r test
+
+      - run: pnpm -r lint
+
+      - name: Tarball smoke test
+        run: |
+          set -euo pipefail
+          PKGS=(
+            packages/core
+            packages/drivethru-hoard
+            packages/itchio-hoard
+            packages/humblebundle-hoard
+            packages/bundleofholding-hoard
+            apps/hoard
+          )
+          # pnpm pack rewrites workspace:* to actual resolved versions
+          TARBALLS=()
+          for pkg in "${PKGS[@]}"; do
+            pushd "$pkg" > /dev/null
+            rm -f ./*.tgz
+            pnpm pack 2>/dev/null
+            tarball=$(ls ./*.tgz | head -1)
+            TARBALLS+=("$(pwd)/$tarball")
+            popd > /dev/null
+          done
+          CONSUMER=$(mktemp -d)
+          cd "$CONSUMER"
+          npm init -y
+          npm install "${TARBALLS[@]}"
+          node --input-type=module <<'EOF'
+          import '@irrg/hoard-core';
+          import '@irrg/drivethru-hoard';
+          import '@irrg/itchio-hoard';
+          import '@irrg/humblebundle-hoard';
+          import '@irrg/bundleofholding-hoard';
+          console.log('all imports ok');
+          EOF
+          node_modules/.bin/hoard --help
+
       - uses: changesets/action@v1
         with:
           publish: pnpm changeset publish
