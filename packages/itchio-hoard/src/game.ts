@@ -97,7 +97,8 @@ export class Game {
     const r = await fetchWithRetry(url, { headers: { Authorization: token } }, 3, this.logger);
 
     if (!r.ok) {
-      throw new Error(`Failed to load downloads for ${this.name}: HTTP ${r.status}`);
+      this.logger(`Failed to load downloads for ${this.name} (HTTP ${r.status}), skipping`);
+      return;
     }
 
     let j: { uploads: Upload[] };

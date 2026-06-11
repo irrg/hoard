@@ -92,9 +92,11 @@ describe('Game.loadDownloads', () => {
     await expect(makeGame().loadDownloads('tok')).rejects.toThrow('Failed to parse downloads');
   });
 
-  it('throws on non-ok HTTP response', async () => {
-    fetchMock.mockResolvedValueOnce({ status: 401, ok: false, json: async () => ({}) });
-    await expect(makeGame().loadDownloads('tok')).rejects.toThrow('HTTP 401');
+  it('leaves downloads empty on non-ok HTTP response', async () => {
+    fetchMock.mockResolvedValueOnce({ status: 403, ok: false, json: async () => ({}) });
+    const g = makeGame();
+    await g.loadDownloads('tok');
+    expect(g.downloads).toHaveLength(0);
   });
 });
 
@@ -157,10 +159,10 @@ describe('Game.download (shallow mode)', () => {
     expect(result).toEqual({ newFiles: 0, errors: 1 });
   });
 
-  it('returns errors: 1 when loadDownloads throws (HTTP failure)', async () => {
+  it('returns errors: 0 when loadDownloads gets non-ok HTTP (expected no-access)', async () => {
     fetchMock.mockResolvedValueOnce({ status: 403, ok: false, json: async () => ({}) });
     const result = await makeGame().download('tok');
-    expect(result).toEqual({ newFiles: 0, errors: 1 });
+    expect(result).toEqual({ newFiles: 0, errors: 0 });
   });
 });
 
