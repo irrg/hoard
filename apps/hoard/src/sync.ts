@@ -221,8 +221,10 @@ export async function cmdSync(
   deep = false,
   verbose = false,
 ): Promise<boolean> {
-  const scheduler = new Scheduler(jobs);
-  const runTask = (t: () => Promise<void>) => scheduler.run(t);
+  function makeRunTask(): (t: () => Promise<void>) => Promise<void> {
+    const s = new Scheduler(jobs);
+    return (t) => s.run(t);
+  }
 
   function makeLogger(sf: Storefront): (msg: string) => void {
     return verbose ? (msg) => console.log(`[${sf}] ${msg}`) : () => {};
@@ -256,6 +258,7 @@ export async function cmdSync(
       const bar = bars.get(sf)!;
       const logger = makeLogger(sf);
       let result: SyncResult;
+      const runTask = makeRunTask();
       switch (sf) {
         case 'itchio':
           result = await syncItchio(config, outputDir, jobs, deep, bar, logger, runTask);
