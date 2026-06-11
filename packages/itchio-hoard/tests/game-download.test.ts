@@ -361,16 +361,12 @@ describe('Game.doDownload', () => {
     expect(download).not.toHaveBeenCalled();
   });
 
-  it('logs to errors.txt with redacted API key on NoDownloadError', async () => {
+  it('returns skipped (not error) on NoDownloadError (web-only game)', async () => {
     mockSession(fetchMock);
     vi.mocked(download).mockRejectedValue(new NoDownloadError('no headers'));
-    await makeGame().doDownload(makeUpload(), 'secret-key', 'game.zip');
-    expect(appendFile).toHaveBeenCalledWith(
-      'downloads/.data/errors.txt',
-      expect.stringContaining('api_key=REDACTED'),
-    );
-    const logged = vi.mocked(appendFile).mock.calls[0][1] as string;
-    expect(logged).not.toContain('secret-key');
+    const result = await makeGame().doDownload(makeUpload(), 'secret-key', 'game.zip');
+    expect(result).toBe('skipped');
+    expect(appendFile).not.toHaveBeenCalled();
   });
 
   it('logs to errors.txt on generic Error', async () => {

@@ -281,14 +281,8 @@ export class Game {
     } catch (e) {
       await unlink(partialPath).catch(() => {});
       if (e instanceof NoDownloadError) {
-        this.logger(`HTTP response is not a download, skipping`);
-        await this._logError(
-          outFile,
-          filename,
-          downloadUrl,
-          'Missing content-disposition header — skipped, please download manually',
-        );
-        return 'error';
+        this.logger(`${this.name} - ${filename}: no downloadable file (web-only), skipping`);
+        return 'skipped';
       }
 
       if (e instanceof Error) {
