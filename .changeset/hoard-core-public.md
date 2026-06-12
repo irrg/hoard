@@ -2,7 +2,7 @@
 "@irrg/hoard-core": minor
 "@irrg/itchio-hoard": patch
 "@irrg/humblebundle-hoard": patch
-"@irrg/drivethru-hoard": patch
+"@irrg/drivethrurpg-hoard": patch
 "@irrg/bundleofholding-hoard": patch
 ---
 

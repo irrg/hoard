@@ -2,6 +2,8 @@ import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, unlink, appendFile, stat } from 'fs/promises';
 import path, { dirname, relative } from 'path';
 
+import { directRuntime, type ProviderRuntime } from '@irrg/hoard-core';
+
 import { API_BASE } from './auth.js';
 import { fetchWithRetry, streamToFile, md5sum, normalizePathPart } from './utils.js';
 
@@ -26,7 +28,9 @@ export interface ProductOptions {
   omitPublisher: boolean;
   dryRun: boolean;
   deep?: boolean;
+  keepOld?: boolean;
   logger: (msg: string) => void;
+  runtime?: ProviderRuntime;
 }
 
 const SITE_ID = '10';
@@ -38,6 +42,7 @@ export class Product {
   publisherName: string;
   dir: string;
   outputDir: string;
+  private runtime: ProviderRuntime;
   options: ProductOptions;
 
   constructor(data: ProductData, options: ProductOptions) {
@@ -45,6 +50,7 @@ export class Product {
     this.name = data.name;
     this.publisherName = data.publisher?.name ?? 'Others';
     this.outputDir = options.outputDir;
+    this.runtime = options.runtime ?? directRuntime;
     this.options = options;
 
     const pub = normalizePathPart(this.publisherName, options.compat);
@@ -58,8 +64,6 @@ export class Product {
   async download(bearerToken: string): Promise<{ newFiles: number; errors: number }> {
     if (this.data.files.length === 0) return { newFiles: 0, errors: 0 };
     if (!this.options.deep && hasFiles(this.dir)) return { newFiles: 0, errors: 0 };
-
-    this.options.logger(`Downloading ${this.name}`);
 
     const filenameGroups = new Map<string, DownloadItemData[]>();
     for (const item of this.data.files) {
@@ -130,16 +134,24 @@ export class Product {
           this.options.logger(`Skipping ${this.name} - ${filename}`);
           return 'skipped';
         }
+        const actual = await this.runtime.filesystem(() => md5sum(outFile));
+        if (actual === stored) {
+          this.options.logger(`Skipping ${this.name} - ${filename}`);
+          return 'skipped';
+        }
         this.options.logger(`Checksum mismatch: ${filename}`);
       } else if (apiChecksum) {
-        const computed = await md5sum(outFile);
+        const computed = await this.runtime.filesystem(() => md5sum(outFile));
         if (computed === apiChecksum) {
           await mkdir(path.dirname(md5File), { recursive: true });
           await writeFile(md5File, apiChecksum);
           this.options.logger(`Skipping ${this.name} - ${filename}`);
           return 'skipped';
         }
-        this.options.logger(`Checksum mismatch: ${filename}`);
+        await mkdir(path.dirname(md5File), { recursive: true });
+        await writeFile(md5File, computed);
+        this.options.logger(`Skipping ${this.name} - ${filename}`);
+        return 'skipped';
       } else {
         const remoteTime = new Date(this.data.fileLastModified).getTime();
         const fileStat = await stat(outFile);
@@ -150,15 +162,19 @@ export class Product {
         this.options.logger(`File outdated: ${filename}`);
       }
 
-      const oldDir = path.join(this.dir, 'old');
-      await mkdir(oldDir, { recursive: true });
-      const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
-        Math.random() * 0x10000,
-      )
-        .toString(16)
-        .padStart(4, '0')}`;
-      this.options.logger(`Moving ${filename} to old/`);
-      await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+      if (this.options.keepOld) {
+        const oldDir = path.join(this.dir, 'old');
+        await mkdir(oldDir, { recursive: true });
+        const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+          Math.random() * 0x10000,
+        )
+          .toString(16)
+          .padStart(4, '0')}`;
+        this.options.logger(`Moving ${filename} to old/`);
+        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+      } else {
+        await unlink(outFile);
+      }
     }
 
     await mkdir(this.dir, { recursive: true });
@@ -176,7 +192,7 @@ export class Product {
     this.options.logger(`Downloading ${this.name} - ${filename}`);
     const partialPath = outFile + '.partial';
     try {
-      await streamToFile(url, partialPath);
+      await this.runtime.network(() => streamToFile(url, partialPath));
     } catch (e) {
       await unlink(partialPath).catch(() => {});
       const msg = e instanceof Error ? e.message : String(e);
@@ -187,12 +203,16 @@ export class Product {
     this.options.logger(`Downloaded ${filename}`);
 
     if (apiChecksum) {
-      const computed = await md5sum(partialPath);
+      const computed = await this.runtime.filesystem(() => md5sum(partialPath));
       if (computed !== apiChecksum) {
-        await unlink(partialPath).catch(() => {});
-        this.options.logger(`Checksum mismatch after download: ${filename}`);
-        await this._logError(outFile, filename, url, 'checksum mismatch after download');
-        return 'error';
+        this.options.logger(
+          `Note: downloaded checksum differs from API (possibly watermarked): ${filename}`,
+        );
+        await rename(partialPath, outFile);
+        const actualMd5File = sidecarPath(this.outputDir, outFile);
+        await mkdir(dirname(actualMd5File), { recursive: true });
+        await writeFile(actualMd5File, computed);
+        return 'downloaded';
       }
     }
 
@@ -219,11 +239,13 @@ export class Product {
       Accept: 'application/json',
     };
 
-    let r = await fetchWithRetry(
-      `${API_BASE}order_products/${this.data.orderProductId}/prepare?${params}`,
-      { headers },
-      3,
-      this.options.logger,
+    let r = await this.runtime.network(() =>
+      fetchWithRetry(
+        `${API_BASE}order_products/${this.data.orderProductId}/prepare?${params}`,
+        { headers },
+        3,
+        this.options.logger,
+      ),
     );
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
 
@@ -231,11 +253,13 @@ export class Product {
 
     while (data.status.startsWith('Preparing')) {
       await sleep(POLL_INTERVAL_MS);
-      r = await fetchWithRetry(
-        `${API_BASE}order_products/${this.data.orderProductId}/check?${params}`,
-        { headers },
-        3,
-        this.options.logger,
+      r = await this.runtime.network(() =>
+        fetchWithRetry(
+          `${API_BASE}order_products/${this.data.orderProductId}/check?${params}`,
+          { headers },
+          3,
+          this.options.logger,
+        ),
       );
       if (!r.ok) throw new Error(`Poll failed: HTTP ${r.status}`);
       data = (await r.json()) as { url: string; status: string };

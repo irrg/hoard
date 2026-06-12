@@ -41,9 +41,9 @@ importers:
       '@irrg/bundleofholding-hoard':
         specifier: workspace:*
         version: link:../../packages/bundleofholding-hoard
-      '@irrg/drivethru-hoard':
+      '@irrg/drivethrurpg-hoard':
         specifier: workspace:*
-        version: link:../../packages/drivethru-hoard
+        version: link:../../packages/drivethrurpg-hoard
       '@irrg/hoard-core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -75,7 +75,7 @@ importers:
 
   packages/core: {}
 
-  packages/drivethru-hoard:
+  packages/drivethrurpg-hoard:
     dependencies:
       '@irrg/hoard-core':
         specifier: workspace:*

@@ -365,27 +365,20 @@ describe('Library.downloadBundles — file skip logic', () => {
     expect(result.downloaded).toBe(0);
   });
 
-  it('moves file to old/ and re-downloads when md5 mismatches', async () => {
-    // File exists, sidecar does not
+  it('writes actual md5 to sidecar and skips when existing file hash differs from API (watermark case)', async () => {
+    // File exists, sidecar does not — actual hash differs from API (watermarked file)
     mockExistsSync.mockImplementation((p: string) => !String(p).endsWith('.md5'));
-    // Pre-download: existing file has wrong hash; post-download: new file is correct
-    mockMd5sum.mockResolvedValueOnce('differenthash').mockResolvedValue('abc123');
+    mockMd5sum.mockResolvedValue('differenthash');
 
     const lib = makeLibrary();
     const result = await lib.downloadBundles([makeBundleRef()]);
 
-    expect(mockMkdir).toHaveBeenCalledWith(expect.stringContaining('old'), { recursive: true });
-    expect(mockRename).toHaveBeenCalledWith(
-      expect.stringContaining('book.pdf'),
-      expect.stringMatching(
-        /old\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{4}-book\.pdf$/,
-      ),
-    );
-    expect(mockStreamToFile).toHaveBeenCalledOnce();
-    expect(result.downloaded).toBe(1);
+    expect(mockWriteFile).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'differenthash');
+    expect(mockStreamToFile).not.toHaveBeenCalled();
+    expect(result.downloaded).toBe(0);
   });
 
-  it('does not mkdir or rename on checksum mismatch in dry-run mode', async () => {
+  it('does not write sidecar or rename in dry-run mode when hash differs', async () => {
     mockExistsSync.mockImplementation((p: string) => !String(p).endsWith('.md5'));
     mockMd5sum.mockResolvedValue('differenthash');
 
@@ -393,20 +386,20 @@ describe('Library.downloadBundles — file skip logic', () => {
     await lib.downloadBundles([makeBundleRef()]);
 
     expect(mockMkdir).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
     expect(mockRename).not.toHaveBeenCalled();
     expect(mockStreamToFile).not.toHaveBeenCalled();
   });
 
-  it('moves to old/ and re-downloads when sidecar hash mismatches', async () => {
-    // Both file and sidecar exist
+  it('moves to old/ and re-downloads when sidecar hash mismatches actual file', async () => {
+    // Both file and sidecar exist; sidecar differs from API md5, actual differs from sidecar
     mockExistsSync.mockReturnValue(true);
-    // Sidecar content differs from api md5 → mismatch; post-download md5 matches
     mockReadFile.mockResolvedValue('stale_hash' as unknown as Buffer);
+    // actual file hash differs from sidecar → genuine mismatch, re-download
 
-    const lib = makeLibrary();
+    const lib = makeLibrary({ keepOld: true });
     const result = await lib.downloadBundles([makeBundleRef()]);
 
-    // Should move to old/ and re-download
     expect(mockRename).toHaveBeenCalledWith(
       expect.stringContaining('book.pdf'),
       expect.stringMatching(

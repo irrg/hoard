@@ -315,7 +315,7 @@ describe('Product.doDownload', () => {
     expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'expected-hash');
   });
 
-  it('unlinks partial and returns error when post-download checksum mismatches', async () => {
+  it('keeps watermarked file, writes actual md5 to sidecar, returns downloaded when post-download checksum differs', async () => {
     existsSyncMock.mockReturnValue(false);
     md5sumMock.mockResolvedValue('wrong-hash');
     const item = makeItem({
@@ -323,16 +323,12 @@ describe('Product.doDownload', () => {
     });
     const p = makeProduct({ files: [item] });
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
-    expect(result).toBe('error');
-    expect(renameMock).not.toHaveBeenCalled();
-    expect(writeFileMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('.md5'),
-      expect.any(String),
+    expect(result).toBe('downloaded');
+    expect(renameMock).toHaveBeenCalledWith(
+      expect.stringContaining('.partial'),
+      expect.not.stringContaining('.partial'),
     );
-    expect(appendFileMock).toHaveBeenCalledWith(
-      expect.stringContaining('errors.txt'),
-      expect.stringContaining('checksum mismatch'),
-    );
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'wrong-hash');
   });
 
   it('does not write md5 sidecar when no checksum is available', async () => {
@@ -460,30 +456,29 @@ describe('Product.doDownload', () => {
     );
   });
 
-  it('deep mode bypasses sidecar and re-hashes when sidecar matches but local hash differs', async () => {
-    // outFile exists, sidecar exists and would match — but deep mode skips sidecar trust
+  it('deep mode bypasses sidecar and writes actual md5 to sidecar when hash differs from API', async () => {
+    // outFile exists, sidecar exists — deep mode skips sidecar trust, computes actual hash
     existsSyncMock.mockReturnValueOnce(true).mockReturnValueOnce(true);
     readFileMock.mockResolvedValue('api-checksum' as unknown as Buffer);
-    // local hash differs → quarantine + re-download
-    md5sumMock.mockResolvedValueOnce('different-local').mockResolvedValue('api-checksum');
+    md5sumMock.mockResolvedValue('different-local'); // actual differs from API
     const item = makeItem({
       checksums: [{ checksum: 'api-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
     });
     const p = makeProduct({ files: [item] }, { deep: true } as any);
     const result = await p.doDownload(item, 'tok', 'my-rpg.pdf');
     expect(readFileMock).not.toHaveBeenCalled(); // sidecar bypassed
-    expect(renameMock).toHaveBeenCalled(); // quarantined old + renamed partial
-    expect(result).toBe('downloaded');
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'different-local');
+    expect(result).toBe('skipped');
   });
 
-  it('quarantine path includes milliseconds and random suffix', async () => {
+  it('quarantine path includes milliseconds and random suffix (keepOld=true)', async () => {
     existsSyncMock.mockReturnValueOnce(true).mockReturnValueOnce(true);
     readFileMock.mockResolvedValue('old-hash' as unknown as Buffer);
     md5sumMock.mockResolvedValue('api-checksum');
     const item = makeItem({
       checksums: [{ checksum: 'api-checksum', checksumDate: '2024-01-01T00:00:00Z' }],
     });
-    const p = makeProduct({ files: [item] });
+    const p = makeProduct({ files: [item] }, { keepOld: true });
     await p.doDownload(item, 'tok', 'my-rpg.pdf');
     const quarantineCall = renameMock.mock.calls.find(([, dest]) => String(dest).includes('old'));
     expect(quarantineCall).toBeDefined();

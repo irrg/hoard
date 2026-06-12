@@ -26,7 +26,7 @@
     "@clack/prompts": "^0.9.0",
     "cli-progress": "^3.12.0",
     "@irrg/bundleofholding-hoard": "workspace:*",
-    "@irrg/drivethru-hoard": "workspace:*",
+    "@irrg/drivethrurpg-hoard": "workspace:*",
     "@irrg/hoard-core": "workspace:*",
     "@irrg/humblebundle-hoard": "workspace:*",
     "@irrg/itchio-hoard": "workspace:*"

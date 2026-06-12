@@ -12,7 +12,7 @@ const mockItchioLogin = vi.hoisted(() => vi.fn());
 vi.mock('@irrg/itchio-hoard', () => ({ loginAPI: mockItchioLogin }));
 
 const mockDrivethruAuthenticate = vi.hoisted(() => vi.fn());
-vi.mock('@irrg/drivethru-hoard', () => ({
+vi.mock('@irrg/drivethrurpg-hoard', () => ({
   Library: vi.fn(function () {
     // @ts-expect-error mock constructor
     this.authenticate = mockDrivethruAuthenticate;

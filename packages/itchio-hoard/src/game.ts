@@ -2,6 +2,8 @@ import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, unlink, appendFile } from 'fs/promises';
 import path from 'path';
 
+import { directRuntime, type ProviderRuntime } from '@irrg/hoard-core';
+
 import { cleanPath, download, fetchWithRetry, md5sum, NoDownloadError } from './utils.js';
 
 export interface GameData {
@@ -42,7 +44,9 @@ export class Game {
   downloads: Upload[];
   dryRun: boolean;
   deep: boolean;
+  keepOld: boolean;
   private logger: (msg: string) => void;
+  private runtime: ProviderRuntime;
 
   constructor(
     data: OwnedKeyData,
@@ -51,6 +55,8 @@ export class Game {
     dryRun = false,
     logger: (msg: string) => void = () => {},
     deep = false,
+    runtime?: ProviderRuntime,
+    keepOld = false,
   ) {
     this.data = data.game;
     this.name = this.data.title;
@@ -84,7 +90,9 @@ export class Game {
     this.downloads = [];
     this.dryRun = dryRun;
     this.deep = deep;
+    this.keepOld = keepOld;
     this.logger = logger;
+    this.runtime = runtime ?? directRuntime;
   }
 
   async loadDownloads(token: string): Promise<void> {
@@ -94,7 +102,9 @@ export class Game {
       ? `https://api.itch.io/games/${this.gameId}/uploads?download_key_id=${this.id}`
       : `https://api.itch.io/games/${this.gameId}/uploads`;
 
-    const r = await fetchWithRetry(url, { headers: { Authorization: token } }, 3, this.logger);
+    const r = await this.runtime.network(() =>
+      fetchWithRetry(url, { headers: { Authorization: token } }, 3, this.logger),
+    );
 
     if (!r.ok) {
       this.logger(`Failed to load downloads for ${this.name} (HTTP ${r.status}), skipping`);
@@ -201,8 +211,6 @@ export class Game {
       return 'skipped';
     }
 
-    this.logger(`Downloading ${filename}`);
-
     if (existsSync(outFile)) {
       this.logger(`File already exists: ${filename}`);
 
@@ -219,38 +227,49 @@ export class Game {
           this.logger(`Skipping ${this.name} - ${filename}`);
           return 'skipped';
         }
+        const actual = await this.runtime.filesystem(() => md5sum(outFile));
+        if (actual === storedMd5) {
+          this.logger(`Skipping ${this.name} - ${filename}`);
+          return 'skipped';
+        }
         this.logger(`Checksum mismatch: ${filename}`);
       } else {
-        const computed = await md5sum(outFile);
+        const computed = await this.runtime.filesystem(() => md5sum(outFile));
         if (computed === md5Hash) {
           this.logger(`Skipping ${this.name} - ${filename}`);
           await mkdir(path.dirname(md5File), { recursive: true });
           await writeFile(md5File, md5Hash);
           return 'skipped';
         }
+        await mkdir(path.dirname(md5File), { recursive: true });
+        await writeFile(md5File, computed);
+        this.logger(`Skipping ${this.name} - ${filename}`);
+        return 'skipped';
       }
 
-      const oldDir = path.join(this.dir, 'old');
-      await mkdir(oldDir, { recursive: true });
-
-      this.logger(`Moving ${filename} to old/`);
-      const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
-        Math.random() * 0x10000,
-      )
-        .toString(16)
-        .padStart(4, '0')}`;
-      await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+      if (this.keepOld) {
+        const oldDir = path.join(this.dir, 'old');
+        await mkdir(oldDir, { recursive: true });
+        this.logger(`Moving ${filename} to old/`);
+        const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+          Math.random() * 0x10000,
+        )
+          .toString(16)
+          .padStart(4, '0')}`;
+        await rename(outFile, path.join(oldDir, `${timestamp}-${filename}`));
+      } else {
+        await unlink(outFile);
+      }
     }
 
     // Get download session UUID
-    const sessionResp = await fetchWithRetry(
-      `https://api.itch.io/games/${this.gameId}/download-sessions`,
-      {
-        method: 'POST',
-        headers: { Authorization: token },
-      },
-      3,
-      this.logger,
+    const sessionResp = await this.runtime.network(() =>
+      fetchWithRetry(
+        `https://api.itch.io/games/${this.gameId}/download-sessions`,
+        { method: 'POST', headers: { Authorization: token } },
+        3,
+        this.logger,
+      ),
     );
 
     let sessionJson: { uuid?: string };
@@ -274,10 +293,13 @@ export class Game {
       ? `https://api.itch.io/uploads/${d.id}/download?api_key=${token}&download_key_id=${this.id}&uuid=${sessionJson.uuid}`
       : `https://api.itch.io/uploads/${d.id}/download?api_key=${token}&uuid=${sessionJson.uuid}`;
 
+    this.logger(`Downloading ${this.name} - ${filename}`);
     const partialFilename = filename + '.partial';
     const partialPath = path.join(this.dir, partialFilename);
     try {
-      await download(downloadUrl, this.dir, this.name, partialFilename, this.logger);
+      await this.runtime.network(() =>
+        download(downloadUrl, this.dir, this.name, partialFilename, this.logger),
+      );
     } catch (e) {
       await unlink(partialPath).catch(() => {});
       if (e instanceof NoDownloadError) {
@@ -301,12 +323,16 @@ export class Game {
     }
 
     if (md5Hash) {
-      const computed = await md5sum(partialPath);
+      const computed = await this.runtime.filesystem(() => md5sum(partialPath));
       if (computed !== md5Hash) {
-        await unlink(partialPath).catch(() => {});
-        this.logger(`Checksum mismatch after download: ${filename}`);
-        await this._logError(outFile, filename, '', 'checksum mismatch after download');
-        return 'error';
+        this.logger(
+          `Note: downloaded checksum differs from API (possibly watermarked): ${filename}`,
+        );
+        await rename(partialPath, outFile);
+        const actualMd5File = sidecarPath(this.outputDir, outFile);
+        await mkdir(path.dirname(actualMd5File), { recursive: true });
+        await writeFile(actualMd5File, computed);
+        return 'downloaded';
       }
     }
 

@@ -2,10 +2,10 @@ import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 
-import type { RunTask } from '@irrg/hoard-core';
+import { directRuntime, runConcurrently, type ProviderRuntime } from '@irrg/hoard-core';
 
 import { Game, GameData, OwnedKeyData } from './game.js';
-import { fetchWithRetry, runConcurrently } from './utils.js';
+import { fetchWithRetry } from './utils.js';
 
 export interface UserProfile {
   id: number;
@@ -48,7 +48,8 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   deep?: boolean;
-  runTask?: RunTask;
+  keepOld?: boolean;
+  runtime?: ProviderRuntime;
 }
 
 export class Library {
@@ -59,10 +60,11 @@ export class Library {
   outputDir: string;
   dryRun: boolean;
   deep: boolean;
+  keepOld: boolean;
   filters: string[];
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
-  private runTask?: RunTask;
+  private runtime: ProviderRuntime;
 
   constructor(
     token: string,
@@ -74,7 +76,8 @@ export class Library {
     logger: (msg: string) => void = () => {},
     onProgress?: (done: number, total: number, downloaded: number) => void,
     deep = false,
-    runTask?: RunTask,
+    runtime?: ProviderRuntime,
+    keepOld = false,
   ) {
     this.token = token;
     this.games = [];
@@ -83,10 +86,11 @@ export class Library {
     this.outputDir = outputDir;
     this.dryRun = dryRun;
     this.deep = deep;
+    this.keepOld = keepOld;
     this.filters = filters.map((f) => f.toLowerCase());
     this.logger = logger;
     this.onProgress = onProgress;
-    this.runTask = runTask;
+    this.runtime = runtime ?? directRuntime;
   }
 
   async loadGamePage(page: number): Promise<number> {
@@ -101,6 +105,8 @@ export class Library {
           this.dryRun,
           this.logger,
           this.deep ?? false,
+          this.runtime,
+          this.keepOld,
         ),
       );
     }
@@ -108,9 +114,11 @@ export class Library {
   }
 
   private async _fetchKeyPage(page: number): Promise<OwnedKeyData[]> {
-    const r = await fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
-      headers: { Authorization: this.token },
-    });
+    const r = await this.runtime.network(() =>
+      fetchWithRetry(`https://api.itch.io/profile/owned-keys?page=${page}`, {
+        headers: { Authorization: this.token },
+      }),
+    );
     if (!r.ok) {
       throw new Error(`Failed to load owned keys page ${page}: HTTP ${r.status}`);
     }
@@ -130,6 +138,8 @@ export class Library {
       this.dryRun,
       this.logger,
       this.deep ?? false,
+      this.runtime,
+      this.keepOld,
     );
   }
 
@@ -174,9 +184,11 @@ export class Library {
   }
 
   async getProfile(): Promise<UserProfile | null> {
-    const r = await fetchWithRetry('https://api.itch.io/profile', {
-      headers: { Authorization: this.token },
-    });
+    const r = await this.runtime.network(() =>
+      fetchWithRetry('https://api.itch.io/profile', {
+        headers: { Authorization: this.token },
+      }),
+    );
     if (!r.ok) {
       this.logger(`Failed to load profile (HTTP ${r.status})`);
       return null;
@@ -191,9 +203,11 @@ export class Library {
   }
 
   async loadCollections(): Promise<Collection[]> {
-    const r = await fetchWithRetry('https://api.itch.io/profile/collections', {
-      headers: { Authorization: this.token },
-    });
+    const r = await this.runtime.network(() =>
+      fetchWithRetry('https://api.itch.io/profile/collections', {
+        headers: { Authorization: this.token },
+      }),
+    );
     if (!r.ok) {
       this.logger(`Failed to load collections (HTTP ${r.status})`);
       return [];
@@ -210,9 +224,10 @@ export class Library {
   async loadCollection(id: number): Promise<void> {
     let page = 1;
     while (true) {
-      const r = await fetchWithRetry(
-        `https://api.itch.io/collections/${id}/collection-games?page=${page}`,
-        { headers: { Authorization: this.token } },
+      const r = await this.runtime.network(() =>
+        fetchWithRetry(`https://api.itch.io/collections/${id}/collection-games?page=${page}`, {
+          headers: { Authorization: this.token },
+        }),
       );
       if (!r.ok) {
         this.logger(`Failed to load collection ${id} page ${page} (HTTP ${r.status}), stopping`);
@@ -235,6 +250,8 @@ export class Library {
             this.dryRun,
             this.logger,
             this.deep ?? false,
+            this.runtime,
+            this.keepOld,
           ),
         );
       }
@@ -243,9 +260,11 @@ export class Library {
   }
 
   async loadBundles(): Promise<BundleKey[]> {
-    const r = await fetchWithRetry('https://api.itch.io/profile/owned-bundles', {
-      headers: { Authorization: this.token },
-    });
+    const r = await this.runtime.network(() =>
+      fetchWithRetry('https://api.itch.io/profile/owned-bundles', {
+        headers: { Authorization: this.token },
+      }),
+    );
     if (!r.ok) {
       this.logger(`Failed to load bundles (HTTP ${r.status})`);
       return [];
@@ -262,9 +281,10 @@ export class Library {
   async loadBundle(id: number): Promise<void> {
     let page = 1;
     while (true) {
-      const r = await fetchWithRetry(
-        `https://api.itch.io/bundles/${id}/bundle-games?page=${page}`,
-        { headers: { Authorization: this.token } },
+      const r = await this.runtime.network(() =>
+        fetchWithRetry(`https://api.itch.io/bundles/${id}/bundle-games?page=${page}`, {
+          headers: { Authorization: this.token },
+        }),
       );
       if (!r.ok) {
         this.logger(`Failed to load bundle ${id} page ${page} (HTTP ${r.status}), stopping`);
@@ -287,6 +307,8 @@ export class Library {
             this.dryRun,
             this.logger,
             this.deep ?? false,
+            this.runtime,
+            this.keepOld,
           ),
         );
       }
@@ -319,11 +341,7 @@ export class Library {
       this.onProgress?.(++done, total, downloaded);
     });
 
-    if (this.runTask) {
-      await Promise.all(tasks.map((task) => this.runTask!(task)));
-    } else {
-      await runConcurrently(tasks, this.jobs);
-    }
+    await runConcurrently(tasks, this.jobs);
     return { downloaded, errors };
   }
 }

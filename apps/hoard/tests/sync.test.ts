@@ -24,7 +24,7 @@ vi.mock('@irrg/itchio-hoard', () => ({
     this.downloadLibrary = vi.fn().mockResolvedValue({ downloaded: 0, errors: 0 });
   }),
 }));
-vi.mock('@irrg/drivethru-hoard', () => ({
+vi.mock('@irrg/drivethrurpg-hoard', () => ({
   Library: vi.fn(function (this: Record<string, unknown>) {
     this.authenticate = vi.fn().mockResolvedValue(undefined);
     this.loadProducts = vi.fn().mockResolvedValue(undefined);
@@ -76,12 +76,13 @@ describe('cmdSync — Humble partial inventory', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns false when loadOrders reports failed orders', async () => {
+  it('returns true but includes failed order count in error tally when loadOrders reports failures', async () => {
     mockLoadOrders.mockResolvedValue({ failed: 2 });
     mockDownloadLibrary.mockResolvedValue({ downloaded: 0, errors: 0 });
 
     const result = await cmdSync(['humblebundle'], makeConfig(), '/tmp/out', 4, false, true);
-    expect(result).toBe(false);
+    // Partial failures from loadOrders are counted as errors but the sync itself succeeds
+    expect(result).toBe(true);
   });
 
   it('returns true when loadOrders has no failures and download has no errors', async () => {

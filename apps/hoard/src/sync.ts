@@ -1,8 +1,9 @@
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { fetchCabinet, Library as BoHLibrary, loginWeb } from '@irrg/bundleofholding-hoard';
-import { Library as DrivethruLibrary } from '@irrg/drivethru-hoard';
-import { Scheduler } from '@irrg/hoard-core';
+import { Library as DrivethruLibrary } from '@irrg/drivethrurpg-hoard';
+import { FairScheduler, type ProviderRuntime } from '@irrg/hoard-core';
 import { Library as HumbleLibrary } from '@irrg/humblebundle-hoard';
 import { Library as ItchioLibrary, loginAPI as itchioLogin } from '@irrg/itchio-hoard';
 import cliProgress from 'cli-progress';
@@ -44,9 +45,10 @@ async function syncItchio(
   outputDir: string,
   jobs: number,
   deep: boolean,
+  keepOld: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
-  runTask: (t: () => Promise<void>) => Promise<void>,
+  runtime: ProviderRuntime,
 ): Promise<SyncResult> {
   if (!config.HOARD_ITCHIO_USERNAME || !config.HOARD_ITCHIO_PASSWORD) {
     return { ok: 'skip' };
@@ -67,7 +69,8 @@ async function syncItchio(
         bar.update(done, { status: barStatus(done, total, downloaded) });
       },
       deep,
-      runTask,
+      runtime,
+      keepOld,
     );
     await lib.loadOwnedGames();
     lastTotal = lib.games.length;
@@ -85,9 +88,10 @@ async function syncDrivethru(
   outputDir: string,
   jobs: number,
   deep: boolean,
+  keepOld: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
-  runTask: (t: () => Promise<void>) => Promise<void>,
+  runtime: ProviderRuntime,
 ): Promise<SyncResult> {
   if (!config.HOARD_DRIVETHRU_API_KEY) return { ok: 'skip' };
   try {
@@ -100,9 +104,10 @@ async function syncDrivethru(
       omitPublisher: false,
       dryRun: false,
       deep,
+      keepOld,
       filters: [],
       logger,
-      runTask,
+      runtime,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -125,9 +130,10 @@ async function syncHumblebundle(
   outputDir: string,
   jobs: number,
   deep: boolean,
+  keepOld: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
-  runTask: (t: () => Promise<void>) => Promise<void>,
+  runtime: ProviderRuntime,
 ): Promise<SyncResult> {
   if (!config.HOARD_HUMBLEBUNDLE_SESSION) return { ok: 'skip' };
   try {
@@ -140,9 +146,10 @@ async function syncHumblebundle(
       extExclude: [],
       dryRun: false,
       deep,
+      keepOld,
       filters: [],
       logger,
-      runTask,
+      runtime,
       onProgress: (done, total, downloaded) => {
         lastTotal = total;
         bar.update(done, { status: barStatus(done, total, downloaded) });
@@ -166,9 +173,10 @@ async function syncBundleofholding(
   outputDir: string,
   jobs: number,
   deep: boolean,
+  keepOld: boolean,
   bar: cliProgress.SingleBar,
   logger: (msg: string) => void,
-  runTask: (t: () => Promise<void>) => Promise<void>,
+  runtime: ProviderRuntime,
 ): Promise<SyncResult> {
   const hasCookie = !!config.HOARD_BUNDLEOFHOLDING_COOKIE;
   const hasCredentials =
@@ -189,10 +197,11 @@ async function syncBundleofholding(
       jobs,
       dryRun: false,
       deep,
+      keepOld,
       cookie,
       filters: [],
       logger,
-      runTask,
+      runtime,
       onLoadPage: (loaded, total, filesFound) => {
         bar.update(0, { status: `loading ${loaded}/${total}, ${filesFound} files` });
       },
@@ -220,10 +229,26 @@ export async function cmdSync(
   jobs: number,
   deep = false,
   verbose = false,
+  keepOld = false,
 ): Promise<boolean> {
-  function makeRunTask(): (t: () => Promise<void>) => Promise<void> {
-    const s = new Scheduler(jobs);
-    return (t) => s.run(t);
+  const configuredStorefronts = storefronts.filter((sf) => isConfigured(sf, config));
+
+  await Promise.all(
+    configuredStorefronts.map(async (sf) => {
+      const dir = join(outputDir, sf, '.data');
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'errors.txt'), '');
+    }),
+  );
+
+  const network = new FairScheduler(jobs, configuredStorefronts);
+  const filesystem = new FairScheduler(jobs, configuredStorefronts);
+
+  function makeRuntime(sf: Storefront): ProviderRuntime {
+    return {
+      network: (t) => network.run(sf, t),
+      filesystem: (t) => filesystem.run(sf, t),
+    };
   }
 
   function makeLogger(sf: Storefront): (msg: string) => void {
@@ -257,21 +282,53 @@ export async function cmdSync(
     storefronts.map(async (sf) => {
       const bar = bars.get(sf)!;
       const logger = makeLogger(sf);
+      const runtime = makeRuntime(sf);
       let result: SyncResult;
-      const runTask = makeRunTask();
-      switch (sf) {
-        case 'itchio':
-          result = await syncItchio(config, outputDir, jobs, deep, bar, logger, runTask);
-          break;
-        case 'drivethru':
-          result = await syncDrivethru(config, outputDir, jobs, deep, bar, logger, runTask);
-          break;
-        case 'humblebundle':
-          result = await syncHumblebundle(config, outputDir, jobs, deep, bar, logger, runTask);
-          break;
-        case 'bundleofholding':
-          result = await syncBundleofholding(config, outputDir, jobs, deep, bar, logger, runTask);
-          break;
+      try {
+        switch (sf) {
+          case 'itchio':
+            result = await syncItchio(config, outputDir, jobs, deep, keepOld, bar, logger, runtime);
+            break;
+          case 'drivethru':
+            result = await syncDrivethru(
+              config,
+              outputDir,
+              jobs,
+              deep,
+              keepOld,
+              bar,
+              logger,
+              runtime,
+            );
+            break;
+          case 'humblebundle':
+            result = await syncHumblebundle(
+              config,
+              outputDir,
+              jobs,
+              deep,
+              keepOld,
+              bar,
+              logger,
+              runtime,
+            );
+            break;
+          case 'bundleofholding':
+            result = await syncBundleofholding(
+              config,
+              outputDir,
+              jobs,
+              deep,
+              keepOld,
+              bar,
+              logger,
+              runtime,
+            );
+            break;
+        }
+      } finally {
+        network.release(sf);
+        filesystem.release(sf);
       }
       const statusMsg =
         result.ok === true
@@ -304,5 +361,21 @@ export async function cmdSync(
   const summary = [`${totalItems} total`, `${totalNew} new`];
   if (totalErrors > 0) summary.push(`${totalErrors} errors`);
   console.log(`\n${summary.join(', ')}`);
-  return !anyFailed && totalErrors === 0;
+  return !anyFailed;
+}
+
+function isConfigured(sf: Storefront, config: HoardConfig): boolean {
+  switch (sf) {
+    case 'itchio':
+      return !!config.HOARD_ITCHIO_USERNAME && !!config.HOARD_ITCHIO_PASSWORD;
+    case 'drivethru':
+      return !!config.HOARD_DRIVETHRU_API_KEY;
+    case 'humblebundle':
+      return !!config.HOARD_HUMBLEBUNDLE_SESSION;
+    case 'bundleofholding':
+      return (
+        !!config.HOARD_BUNDLEOFHOLDING_COOKIE ||
+        (!!config.HOARD_BUNDLEOFHOLDING_EMAIL && !!config.HOARD_BUNDLEOFHOLDING_PASSWORD)
+      );
+  }
 }

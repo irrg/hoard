@@ -1,7 +1,7 @@
 ---
 "@irrg/itchio-hoard": minor
 "@irrg/humblebundle-hoard": minor
-"@irrg/drivethru-hoard": minor
+"@irrg/drivethrurpg-hoard": minor
 "@irrg/bundleofholding-hoard": minor
 ---
 

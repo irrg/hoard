@@ -2,6 +2,8 @@ import { existsSync, readdirSync } from 'fs';
 import { writeFile, readFile, mkdir, rename, unlink, appendFile } from 'fs/promises';
 import path from 'path';
 
+import { directRuntime, type ProviderRuntime } from '@irrg/hoard-core';
+
 import { streamToFile, md5sum, cleanPath, runConcurrently } from './utils.js';
 
 export interface DownloadStructItem {
@@ -36,6 +38,8 @@ export interface BundleOptions {
   filters: string[];
   logger: (msg: string) => void;
   deep?: boolean;
+  keepOld?: boolean;
+  runtime?: ProviderRuntime;
 }
 
 export interface BundleWorkItem {
@@ -51,6 +55,7 @@ export class Bundle {
   title: string;
   subproducts: SubProduct[];
   private outputDir: string;
+  private runtime: ProviderRuntime;
   options: BundleOptions;
 
   constructor(key: string, data: BundleData, options: BundleOptions) {
@@ -59,6 +64,7 @@ export class Bundle {
     this.title = cleanPath(this.name);
     this.subproducts = Array.isArray(data.subproducts) ? data.subproducts : [];
     this.outputDir = options.outputDir;
+    this.runtime = options.runtime ?? directRuntime;
     this.options = options;
   }
 
@@ -176,24 +182,37 @@ export class Bundle {
             this.options.logger(`Skipping ${productName} - ${filename}`);
             return 'skipped';
           }
+          const actual = await this.runtime.filesystem(() => md5sum(outFile));
+          if (actual === stored) {
+            this.options.logger(`Skipping ${productName} - ${filename}`);
+            return 'skipped';
+          }
         } else {
-          const computed = await md5sum(outFile);
+          const computed = await this.runtime.filesystem(() => md5sum(outFile));
           if (computed === apiMd5) {
             await mkdir(path.dirname(md5File), { recursive: true });
             await writeFile(md5File, apiMd5);
             this.options.logger(`Skipping ${productName} - ${filename}`);
             return 'skipped';
           }
+          await mkdir(path.dirname(md5File), { recursive: true });
+          await writeFile(md5File, computed);
+          this.options.logger(`Skipping ${productName} - ${filename}`);
+          return 'skipped';
         }
         this.options.logger(`Checksum mismatch: ${filename}, re-downloading`);
-        const oldDir = path.join(dir, 'old');
-        await mkdir(oldDir, { recursive: true });
-        const stamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
-          Math.random() * 0x10000,
-        )
-          .toString(16)
-          .padStart(4, '0')}`;
-        await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
+        if (this.options.keepOld) {
+          const oldDir = path.join(dir, 'old');
+          await mkdir(oldDir, { recursive: true });
+          const stamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+            Math.random() * 0x10000,
+          )
+            .toString(16)
+            .padStart(4, '0')}`;
+          await rename(outFile, path.join(oldDir, `${stamp}-${filename}`));
+        } else {
+          await unlink(outFile);
+        }
       } else {
         this.options.logger(`Skipping ${productName} - ${filename}`);
         return 'skipped';
@@ -206,7 +225,9 @@ export class Bundle {
     const partialPath = outFile + '.partial';
     const errorsFile = path.join(this.outputDir, '.data', 'errors.txt');
     try {
-      await streamToFile(item.url.web, partialPath, `_simpleauth_sess=${this.options.cookie}`);
+      await this.runtime.network(() =>
+        streamToFile(item.url.web, partialPath, `_simpleauth_sess=${this.options.cookie}`),
+      );
     } catch (e) {
       await unlink(partialPath).catch(() => {});
       const msg = e instanceof Error ? e.message : String(e);
@@ -222,16 +243,16 @@ export class Bundle {
 
     const apiMd5 = item.md5?.toLowerCase() || null;
     if (apiMd5) {
-      const computed = await md5sum(partialPath);
+      const computed = await this.runtime.filesystem(() => md5sum(partialPath));
       if (computed !== apiMd5) {
-        await unlink(partialPath).catch(() => {});
-        this.options.logger(`Checksum mismatch after download: ${filename}`);
-        await mkdir(path.dirname(errorsFile), { recursive: true });
-        await appendFile(
-          errorsFile,
-          `Checksum mismatch: ${this.name} / ${productName} - ${filename}\n  URL: ${item.url.web}\n---\n`,
+        this.options.logger(
+          `Note: downloaded checksum differs from API (possibly watermarked): ${filename}`,
         );
-        return 'error';
+        await rename(partialPath, outFile);
+        const actualMd5Out = sidecarPath(this.outputDir, outFile);
+        await mkdir(path.dirname(actualMd5Out), { recursive: true });
+        await writeFile(actualMd5Out, computed);
+        return 'downloaded';
       }
     }
 

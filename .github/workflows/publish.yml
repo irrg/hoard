@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           PKGS=(
             packages/core
-            packages/drivethru-hoard
+            packages/drivethrurpg-hoard
             packages/itchio-hoard
             packages/humblebundle-hoard
             packages/bundleofholding-hoard
@@ -69,7 +69,7 @@ jobs:
           npm install "${TARBALLS[@]}"
           node --input-type=module <<'EOF'
           import '@irrg/hoard-core';
-          import '@irrg/drivethru-hoard';
+          import '@irrg/drivethrurpg-hoard';
           import '@irrg/itchio-hoard';
           import '@irrg/humblebundle-hoard';
           import '@irrg/bundleofholding-hoard';

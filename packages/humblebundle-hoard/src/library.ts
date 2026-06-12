@@ -2,10 +2,10 @@ import { existsSync, readdirSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
-import type { RunTask } from '@irrg/hoard-core';
+import { directRuntime, runConcurrently, type ProviderRuntime } from '@irrg/hoard-core';
 
 import { Bundle, BundleData, BundleOptions } from './bundle.js';
-import { fetchWithRetry, runConcurrently } from './utils.js';
+import { fetchWithRetry } from './utils.js';
 
 const BASE_URL = 'https://www.humblebundle.com';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -22,7 +22,8 @@ export interface LibraryOptions {
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   deep?: boolean;
-  runTask?: RunTask;
+  keepOld?: boolean;
+  runtime?: ProviderRuntime;
 }
 
 interface CachedOrder {
@@ -36,7 +37,7 @@ export class Library {
   private bundleOptions: BundleOptions;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
-  private runTask?: RunTask;
+  private runtime: ProviderRuntime;
   bundles: Bundle[];
 
   constructor(options: LibraryOptions) {
@@ -45,7 +46,7 @@ export class Library {
     this.bundles = [];
     this.logger = options.logger ?? (() => {});
     this.onProgress = options.onProgress;
-    this.runTask = options.runTask;
+    this.runtime = options.runtime ?? directRuntime;
     this.bundleOptions = {
       cookie: options.cookie,
       outputDir: options.outputDir,
@@ -56,6 +57,8 @@ export class Library {
       filters: options.filters,
       logger: this.logger,
       deep: options.deep,
+      keepOld: options.keepOld,
+      runtime: this.runtime,
     };
   }
 
@@ -93,11 +96,13 @@ export class Library {
   }
 
   private async fetchKeys(): Promise<string[]> {
-    const r = await fetchWithRetry(
-      `${BASE_URL}/api/v1/user/order`,
-      { headers: this.authHeaders },
-      3,
-      this.logger,
+    const r = await this.runtime.network(() =>
+      fetchWithRetry(
+        `${BASE_URL}/api/v1/user/order`,
+        { headers: this.authHeaders },
+        3,
+        this.logger,
+      ),
     );
     if (!r.ok) throw new Error(`Failed to fetch orders: HTTP ${r.status}`);
     const data = (await r.json()) as { gamekey: string }[];
@@ -112,11 +117,13 @@ export class Library {
         this.bundles.push(new Bundle(key, cached, this.bundleOptions));
         return;
       }
-      const r = await fetchWithRetry(
-        `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
-        { headers: this.authHeaders },
-        3,
-        this.logger,
+      const r = await this.runtime.network(() =>
+        fetchWithRetry(
+          `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
+          { headers: this.authHeaders },
+          3,
+          this.logger,
+        ),
       );
       if (!r.ok) {
         this.logger(`Failed to fetch order ${key}: HTTP ${r.status}`);
@@ -134,11 +141,7 @@ export class Library {
         failed++;
       }
     });
-    if (this.runTask) {
-      await Promise.all(tasks.map((t) => this.runTask!(t)));
-    } else {
-      await runConcurrently(tasks, this.jobs);
-    }
+    await runConcurrently(tasks, this.jobs);
     return failed;
   }
 
@@ -155,11 +158,13 @@ export class Library {
       this.bundles.push(new Bundle(key, cached, this.bundleOptions));
       return;
     }
-    const r = await fetchWithRetry(
-      `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
-      { headers: this.authHeaders },
-      3,
-      this.logger,
+    const r = await this.runtime.network(() =>
+      fetchWithRetry(
+        `${BASE_URL}/api/v1/order/${key}?all_tpkds=true`,
+        { headers: this.authHeaders },
+        3,
+        this.logger,
+      ),
     );
     if (!r.ok) throw new Error(`Failed to fetch order ${key}: HTTP ${r.status}`);
     const data = (await r.json()) as BundleData;
@@ -197,11 +202,7 @@ export class Library {
       });
     });
 
-    if (this.runTask) {
-      await Promise.all(tasks.map((task) => this.runTask!(task)));
-    } else {
-      await runConcurrently(tasks, this.jobs);
-    }
+    await runConcurrently(tasks, this.jobs);
     return { downloaded, errors };
   }
 }

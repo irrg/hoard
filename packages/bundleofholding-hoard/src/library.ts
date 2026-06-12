@@ -2,11 +2,11 @@ import { existsSync, readdirSync } from 'fs';
 import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'fs/promises';
 import { dirname, extname, join, relative } from 'path';
 
-import type { RunTask } from '@irrg/hoard-core';
+import { directRuntime, runConcurrently, type ProviderRuntime } from '@irrg/hoard-core';
 
 import { fetchBundlePage, type DownloadFile } from './bundle.js';
 import { type BundleRef } from './cabinet.js';
-import { cleanPath, md5sum, runConcurrently, streamToFile } from './utils.js';
+import { cleanPath, md5sum, streamToFile } from './utils.js';
 
 export interface LibraryOptions {
   outputDir: string;
@@ -15,10 +15,11 @@ export interface LibraryOptions {
   cookie: string;
   filters: string[];
   deep?: boolean;
+  keepOld?: boolean;
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
   onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
-  runTask?: RunTask;
+  runtime?: ProviderRuntime;
 }
 
 export class Library {
@@ -28,10 +29,11 @@ export class Library {
   private cookie: string;
   private filters: string[];
   private deep: boolean;
+  private keepOld: boolean;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
   private onLoadPage?: (loaded: number, total: number, filesFound: number) => void;
-  private runTask?: RunTask;
+  private runtime: ProviderRuntime;
 
   constructor(opts: LibraryOptions) {
     this.outputDir = opts.outputDir;
@@ -40,9 +42,10 @@ export class Library {
     this.cookie = opts.cookie;
     this.filters = opts.filters.map((f) => f.toLowerCase());
     this.deep = opts.deep ?? false;
+    this.keepOld = opts.keepOld ?? false;
     this.logger = opts.logger ?? (() => {});
     this.onProgress = opts.onProgress;
-    this.runTask = opts.runTask;
+    this.runtime = opts.runtime ?? directRuntime;
     this.onLoadPage = opts.onLoadPage;
   }
 
@@ -59,7 +62,7 @@ export class Library {
         return JSON.parse(await readFile(cachePath, 'utf-8')) as import('./bundle.js').BundlePage;
       } catch {}
     }
-    const page = await fetchBundlePage(key, this.cookie);
+    const page = await this.runtime.network(() => fetchBundlePage(key, this.cookie));
     if (!this.dryRun) {
       try {
         await mkdir(dirname(cachePath), { recursive: true });
@@ -84,11 +87,7 @@ export class Library {
       const filesFound = entries.reduce((s, e) => s + e.files.length, 0);
       this.onLoadPage?.(pagesLoaded, bundles.length, filesFound);
     });
-    if (this.runTask) {
-      await Promise.all(pageTasks.map((t) => this.runTask!(t)));
-    } else {
-      await runConcurrently(pageTasks, this.jobs);
-    }
+    await runConcurrently(pageTasks, this.jobs);
 
     const total = entries.reduce((s, e) => s + e.files.length, 0);
     let filesDone = 0;
@@ -127,11 +126,7 @@ export class Library {
         this.onProgress?.(++filesDone, total, downloaded);
       });
 
-      if (this.runTask) {
-        await Promise.all(tasks.map((task) => this.runTask!(task)));
-      } else {
-        await runConcurrently(tasks, this.jobs);
-      }
+      await runConcurrently(tasks, this.jobs);
       if (bundleHadNewFiles) downloaded++;
     }
 
@@ -169,26 +164,43 @@ export class Library {
               this.logger(`Skipping ${bundleName} - ${filename}`);
               return 'skipped';
             }
-          } else {
-            const actual = await md5sum(outPath);
-            if (actual === file.md5) {
-              await mkdir(dirname(sidePath), { recursive: true });
-              await writeFile(sidePath, file.md5);
+            const actual = await this.runtime.filesystem(() => md5sum(outPath));
+            if (actual === stored) {
               this.logger(`Skipping ${bundleName} - ${filename}`);
               return 'skipped';
             }
+          } else {
+            const actual = await this.runtime.filesystem(() => md5sum(outPath));
+            if (actual === file.md5) {
+              if (!this.dryRun) {
+                await mkdir(dirname(sidePath), { recursive: true });
+                await writeFile(sidePath, file.md5);
+              }
+              this.logger(`Skipping ${bundleName} - ${filename}`);
+              return 'skipped';
+            }
+            if (!this.dryRun) {
+              await mkdir(dirname(sidePath), { recursive: true });
+              await writeFile(sidePath, actual);
+            }
+            this.logger(`Skipping ${bundleName} - ${filename}`);
+            return 'skipped';
           }
           this.logger(`Checksum mismatch: ${filename}`);
           if (!this.dryRun) {
-            const oldDir = join(dir, 'old');
-            await mkdir(oldDir, { recursive: true });
-            this.logger(`Moving ${filename} to old/`);
-            const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
-              Math.random() * 0x10000,
-            )
-              .toString(16)
-              .padStart(4, '0')}`;
-            await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
+            if (this.keepOld) {
+              const oldDir = join(dir, 'old');
+              await mkdir(oldDir, { recursive: true });
+              this.logger(`Moving ${filename} to old/`);
+              const timestamp = `${new Date().toISOString().slice(0, 23).replace(/[:.]/g, '-')}-${Math.floor(
+                Math.random() * 0x10000,
+              )
+                .toString(16)
+                .padStart(4, '0')}`;
+              await rename(outPath, join(oldDir, `${timestamp}-${filename}`));
+            } else {
+              await unlink(outPath);
+            }
           }
         } else {
           this.logger(`Skipping ${bundleName} - ${filename}`);
@@ -203,9 +215,8 @@ export class Library {
 
       this.logger(`Downloading ${filename}`);
       const partialPath = outPath + '.partial';
-      const dataDir = join(this.outputDir, '.data');
       try {
-        await streamToFile(file.url, partialPath, this.cookie);
+        await this.runtime.network(() => streamToFile(file.url, partialPath, this.cookie));
       } catch (e) {
         await unlink(partialPath).catch(() => {});
         throw e;
@@ -213,16 +224,15 @@ export class Library {
       this.logger(`Downloaded ${filename}`);
 
       if (file.md5) {
-        const actual = await md5sum(partialPath);
+        const actual = await this.runtime.filesystem(() => md5sum(partialPath));
         if (actual !== file.md5) {
-          await unlink(partialPath).catch(() => {});
-          this.logger(`Checksum mismatch after download: ${filename}`);
-          await mkdir(dataDir, { recursive: true });
-          await appendFile(
-            join(dataDir, 'errors.txt'),
-            `${bundleName} - ${filename}: checksum mismatch after download\n`,
+          this.logger(
+            `Note: downloaded checksum differs from API (possibly watermarked): ${filename}`,
           );
-          return 'error';
+          await rename(partialPath, outPath);
+          await mkdir(dirname(sidePath), { recursive: true });
+          await writeFile(sidePath, actual);
+          return 'downloaded';
         }
       }
 

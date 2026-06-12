@@ -1,6 +1,6 @@
 import { spinner } from '@clack/prompts';
 import { loginWeb as bohLogin } from '@irrg/bundleofholding-hoard';
-import { Library as DrivethruLibrary } from '@irrg/drivethru-hoard';
+import { Library as DrivethruLibrary } from '@irrg/drivethrurpg-hoard';
 import { loginAPI as itchioLogin } from '@irrg/itchio-hoard';
 
 import { type HoardConfig, STOREFRONTS, type Storefront } from './config.js';

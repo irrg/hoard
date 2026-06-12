@@ -2,11 +2,11 @@ import { existsSync } from 'fs';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
-import type { RunTask } from '@irrg/hoard-core';
+import { directRuntime, runConcurrently, type ProviderRuntime } from '@irrg/hoard-core';
 
 import { API_BASE, exchangeKey } from './auth.js';
 import { Product, ProductData, ProductOptions } from './product.js';
-import { fetchWithRetry, runConcurrently } from './utils.js';
+import { fetchWithRetry } from './utils.js';
 
 export interface LibraryOptions {
   apiKey: string;
@@ -16,10 +16,11 @@ export interface LibraryOptions {
   omitPublisher: boolean;
   dryRun: boolean;
   deep?: boolean;
+  keepOld?: boolean;
   filters: string[];
   logger?: (msg: string) => void;
   onProgress?: (done: number, total: number, downloaded: number) => void;
-  runTask?: RunTask;
+  runtime?: ProviderRuntime;
 }
 
 interface PageCacheMeta {
@@ -39,7 +40,7 @@ export class Library {
   private productOptions: ProductOptions;
   private logger: (msg: string) => void;
   private onProgress?: (done: number, total: number, downloaded: number) => void;
-  private runTask?: RunTask;
+  private runtime: ProviderRuntime;
 
   constructor(options: LibraryOptions) {
     this.apiKey = options.apiKey;
@@ -48,14 +49,16 @@ export class Library {
     this.filters = options.filters.map((f) => f.toLowerCase());
     this.logger = options.logger ?? (() => {});
     this.onProgress = options.onProgress;
-    this.runTask = options.runTask;
+    this.runtime = options.runtime ?? directRuntime;
     this.productOptions = {
       outputDir: options.outputDir,
       compat: options.compat,
       omitPublisher: options.omitPublisher,
       dryRun: options.dryRun,
       deep: options.deep,
+      keepOld: options.keepOld,
       logger: this.logger,
+      runtime: this.runtime,
     };
   }
 
@@ -81,11 +84,13 @@ export class Library {
   }
 
   private async _fetchPage(page: number): Promise<ProductData[] | null> {
-    const r = await fetchWithRetry(
-      `${PRODUCTS_URL}&page=${page}`,
-      { headers: { Authorization: this.bearerToken, Accept: 'application/json' } },
-      3,
-      this.logger,
+    const r = await this.runtime.network(() =>
+      fetchWithRetry(
+        `${PRODUCTS_URL}&page=${page}`,
+        { headers: { Authorization: this.bearerToken, Accept: 'application/json' } },
+        3,
+        this.logger,
+      ),
     );
     if (!r.ok) throw new Error(`Failed to load products: HTTP ${r.status}`);
     let j: ProductData[];
@@ -200,11 +205,7 @@ export class Library {
       this.onProgress?.(++done, total, downloaded);
     });
 
-    if (this.runTask) {
-      await Promise.all(tasks.map((task) => this.runTask!(task)));
-    } else {
-      await runConcurrently(tasks, this.jobs);
-    }
+    await runConcurrently(tasks, this.jobs);
     return { downloaded, errors };
   }
 }

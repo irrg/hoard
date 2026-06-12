@@ -213,31 +213,28 @@ describe('Bundle.download', () => {
     expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'aabbccdd');
   });
 
-  it('re-downloads and renames old file when md5 mismatches', async () => {
+  it('writes actual md5 to sidecar and skips when existing file hash differs from API (watermark case)', async () => {
     existsSyncMock.mockImplementation((p: string) => p.endsWith('.pdf'));
-    md5sumMock
-      .mockResolvedValueOnce('deadbeef') // pre-download check: existing file is wrong
-      .mockResolvedValue('aabbccdd'); // post-download check: newly downloaded file is correct
+    md5sumMock.mockResolvedValue('deadbeef'); // actual file hash differs from API hash
     const b = new Bundle('k', makeData(), makeOptions());
     const result = await b.download();
-    expect(renameMock).toHaveBeenCalled();
-    expect(streamToFileMock).toHaveBeenCalled();
-    expect(result.newFiles).toBe(1);
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'deadbeef');
+    expect(streamToFileMock).not.toHaveBeenCalled();
+    expect(result.newFiles).toBe(0);
     expect(result.errors).toBe(0);
   });
 
-  it('returns error and unlinks partial when post-download md5 mismatches', async () => {
+  it('keeps watermarked file, writes actual md5 to sidecar, returns newFiles=1 when post-download md5 differs', async () => {
     md5sumMock.mockResolvedValue('differenthash');
     const b = new Bundle('k', makeData(), makeOptions());
     const result = await b.download();
-    expect(result.errors).toBe(1);
-    expect(result.newFiles).toBe(0);
-    expect(renameMock).not.toHaveBeenCalled();
-    expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining('.partial'));
-    expect(appendFileMock).toHaveBeenCalledWith(
-      expect.stringContaining('errors.txt'),
-      expect.stringContaining('Checksum mismatch'),
+    expect(result.newFiles).toBe(1);
+    expect(result.errors).toBe(0);
+    expect(renameMock).toHaveBeenCalledWith(
+      expect.stringContaining('.partial'),
+      expect.not.stringContaining('.partial'),
     );
+    expect(writeFileMock).toHaveBeenCalledWith(expect.stringContaining('.md5'), 'differenthash');
   });
 
   // -------------------------------------------------------------------------
@@ -399,14 +396,16 @@ describe('Bundle.download', () => {
     );
   });
 
-  it('logs checksum mismatch message and returns error when post-download md5 differs', async () => {
+  it('logs watermark note and returns downloaded when post-download md5 differs from API', async () => {
     const logger = vi.fn();
     md5sumMock.mockResolvedValue('differenthash');
     const b = new Bundle('k', makeData(), makeOptions({ logger }));
     const result = await b.download();
-    expect(logger).toHaveBeenCalledWith(expect.stringMatching(/checksum mismatch after download/i));
-    expect(result.errors).toBe(1);
-    expect(result.newFiles).toBe(0);
+    expect(logger).toHaveBeenCalledWith(
+      expect.stringMatching(/downloaded checksum differs from API/i),
+    );
+    expect(result.newFiles).toBe(1);
+    expect(result.errors).toBe(0);
   });
 
   // -------------------------------------------------------------------------

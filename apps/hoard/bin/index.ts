@@ -22,6 +22,7 @@ const { values: args, positionals } = parseArgs({
     jobs: { type: 'string', short: 'j' },
     output: { type: 'string', short: 'o' },
     deep: { type: 'boolean' },
+    'keep-old': { type: 'boolean' },
     verbose: { type: 'boolean', short: 'v' },
     help: { type: 'boolean', short: 'h' },
   },
@@ -43,6 +44,7 @@ Options:
   -j, --jobs <n>      Concurrent downloads (overrides config)
   -o, --output <dir>  Output directory (overrides config)
       --deep          Per-file md5 verification (default: skip if folder exists)
+      --keep-old      Move replaced files to old/ instead of deleting them
   -v, --verbose       Print per-file log lines, no progress bars
   -h, --help          Show this help`;
 
@@ -116,6 +118,7 @@ switch (command) {
       jobs,
       args.deep ?? false,
       args.verbose ?? false,
+      args['keep-old'] ?? false,
     );
     if (!ok) process.exit(1);
     break;
